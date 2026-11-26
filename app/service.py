@@ -81,6 +81,7 @@ class Service:
         decision = self.agent.ask(question['question'], [tuple(h) for h in history])
         message = self.respond(session_id, question, history, decision, time.perf_counter() - started)
         self.store.add_message(session_id, 'agent', message.get('text', ''), meta=message)
+        message['session_id'] = session_id
         return message
 
     def thread(self, session_id, text):

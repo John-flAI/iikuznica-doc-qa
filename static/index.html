@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Агент ответов по регламентам</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app panel-closed" id="app">
+  <main class="chat">
+    <header class="chat-head">
+      <div>
+        <h1>Ответы по регламентам</h1>
+        <p class="sub">Агент отвечает текстом регламента и показывает источник. Нет ответа — не выдумывает, а готовит запрос в службу качества.</p>
+      </div>
+      <button class="ghost" id="new-dialog" type="button">Новый диалог</button>
+    </header>
+    <section class="messages" id="messages" aria-live="polite"></section>
+    <div class="thinking" id="thinking" hidden>
+      <div class="bar"></div>
+      <div class="steps" id="thinking-steps"></div>
+    </div>
+    <footer class="composer">
+      <div class="examples" id="examples"></div>
+      <form class="ask" id="ask-form">
+        <textarea id="ask-input" rows="2" placeholder="Задайте вопрос по регламентам…"></textarea>
+        <button class="primary" id="ask-send" type="submit">Спросить</button>
+      </form>
+    </footer>
+  </main>
+  <button class="rail" id="rail" type="button" title="Служба качества, документы и статистика">
+    <span class="rail-arrow">◂</span>
+    <span class="rail-label">Служба качества · Документы · Статистика</span>
+  </button>
+  <aside class="panel" id="panel">
+    <nav class="tabs">
+      <button class="tab active" type="button" data-tab="qc">Служба качества</button>
+      <button class="tab" type="button" data-tab="docs">Документы</button>
+      <button class="tab" type="button" data-tab="stats">Статистика</button>
+      <button class="tab close" id="panel-close" type="button" title="Свернуть">▸</button>
+    </nav>
+    <section class="tab-body active" id="tab-qc">
+      <div class="qc-list" id="qc-list"></div>
+      <div id="qc-detail"></div>
+      <div class="weekly">
+        <button class="ghost" id="weekly" type="button">Отчёт за неделю</button>
+        <pre id="weekly-out" hidden></pre>
+      </div>
+    </section>
+    <section class="tab-body" id="tab-docs">
+      <div class="doc-pick" id="doc-pick"></div>
+      <div class="doc" id="doc"></div>
+    </section>
+    <section class="tab-body" id="tab-stats"></section>
+  </aside>
+</div>
+<svg class="flight" id="flight"><path id="flight-path" d=""/><circle class="fly-dot" id="fly-dot" r="5"/></svg>
+<script src="/static/app.js"></script>
+</body>
+</html>
