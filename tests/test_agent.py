@@ -108,7 +108,7 @@ class AgentLogic(unittest.TestCase):
 
     def test_too_many_clarifications_end_honestly(self):
         agent = self.agent(ok(json.dumps({'action': 'clarify', 'clarify': {'question': 'Где?', 'options': ['А', 'Б']}})))
-        decision = agent.ask(RISKS, [('Где?', 'А'), ('Когда?', 'Б')])
+        decision = agent.ask(RISKS, [('Где?', 'А'), ('Когда?', 'Б'), ('Кто?', 'В')])
         self.assertEqual(decision.route, 'unresolved')
         self.assertEqual(agent.llm.calls, 0)                  # лимит уточнений — модель уже не зовём
 
