@@ -1,0 +1,10 @@
+# <@паспорт файл="PROJECTS/zarabotok/iikuznica/karkas/requirements.txt" дата="2026-10-22">
+# @что: зависимости каркаса «Канцелярист» (FastAPI + разбор PDF + демо-генератор)
+# </@паспорт>
+fastapi>=0.115
+uvicorn>=0.30
+httpx>=0.27
+pydantic>=2.7
+python-multipart>=0.0.9
+pypdf>=4.0
+reportlab>=4.0   # только для демо-генератора PDF (demo/make_demo_pdfs.py)
