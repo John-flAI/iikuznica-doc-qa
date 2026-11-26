@@ -91,6 +91,15 @@ class Corpus:
     def get(self, uid):
         return self._index.get(uid)
 
+    def add_document(self, doc_id, title):
+        self.docs.setdefault(doc_id, {'title': title, 'file': '', 'raw': ''})
+
+    def add(self, unit):
+        """Новый атом — например, ответ службы качества."""
+        assert unit.uid not in self._index, 'атом уже есть: %s' % unit.uid
+        self.units.append(unit)
+        self._index[unit.uid] = unit
+
 
 class _Parser:
     """Разбор одного документа."""

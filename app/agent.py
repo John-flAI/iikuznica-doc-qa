@@ -20,6 +20,7 @@ MIN_SIMILARITY = 0.50     # ниже — фрагмент не считаетс�
 CANDIDATE_FLOOR = 0.45    # ниже — фрагмент не показываем модели вовсе
 PER_DOCUMENT = 3          # сколько лучших фрагментов берём из каждого регламента
 MAX_CLARIFICATIONS = 3    # после этого агент прямо говорит, что однозначного ответа нет
+KNOWLEDGE = 'kb'             # «документ» с ответами службы качества
 NUMBER = re.compile(r'\d+(?:[.,]\d+)?')
 
 SYSTEM = """Ты — внутренний агент компании. Сотрудник задаёт вопрос, а ты находишь ответ в регламентах.
@@ -28,6 +29,7 @@ SYSTEM = """Ты — внутренний агент компании. Сотр�
 
 action = "answer" — фрагменты дают прямой ответ, и он верен для этого сотрудника.
 action = "clarify" — фрагменты дают разные ответы в зависимости от условия, которого нет в вопросе: в разных регламентах разные сроки, ответственные или запреты; либо вопрос можно понять по-разному. Задай ОДИН короткий вопрос и предложи 2–4 варианта. Если различие — между регламентами, варианты должны быть названиями регламентов точно как в поле «Регламент» у фрагментов.
+Фрагменты из базы знаний — это ответы службы качества. Они приоритетнее регламентов: если регламент говорит иначе, приведи ответ службы качества и укажи на расхождение.
 Не отвечай пунктом, который сам начинается с условия («если», «при», «в случае»), пока это условие не согласовано с сотрудником, — сначала уточни его.
 action = "not_found" — ни один фрагмент не отвечает на вопрос. Если фрагменты лишь упоминают тему, но не дают конкретного правила, срока, числа или порядка действий — это тоже not_found.
 
@@ -48,6 +50,7 @@ class Decision:
     option_docs: dict = field(default_factory=dict)   # вариант → регламент, который он называет
     error: str = ''                             # почему модель не ответила (route = degraded)
     turns: int = 0                              # сколько было раундов «поиск → решение»
+    replies: list = field(default_factory=list)  # сырые ответы модели — для журнала вызовов
     usage: Usage = field(default_factory=Usage)
 
     @property
@@ -76,6 +79,7 @@ class Agent:
         if not candidates:
             return decision
         reply = self.llm.chat(self.messages(question, history, candidates))
+        decision.replies.append(reply)
         decision.usage.add(reply, 'decide')
         decision.turns = 1
         if not reply.ok:
@@ -167,8 +171,9 @@ class Agent:
             lines += ['Уточнение агента: %s' % asked, 'Ответ сотрудника: %s' % answered]
         lines.append('Фрагменты регламентов:')
         for uid, (unit, _, _) in candidates.items():
-            lines.append('[%s] Регламент: «%s». Адрес: %s\n%s' % (
-                uid, self.engine.corpus.title(unit.doc), unit.address, unit.quote))
+            source = 'База знаний' if unit.doc == KNOWLEDGE else 'Регламент'
+            lines.append('[%s] %s: «%s». Адрес: %s\n%s' % (
+                uid, source, self.engine.corpus.title(unit.doc), unit.address, unit.quote))
         return [{'role': 'system', 'content': SYSTEM},
                 {'role': 'user', 'content': '\n'.join(lines)}]
 

@@ -25,6 +25,13 @@ class Engine:
     def tokenizer(self):
         return self.search.tokenizer
 
+    def add(self, unit):
+        """Новый атом во все индексы — на лету, без пересборки."""
+        self.corpus.add(unit)
+        self.search.add([unit])
+        if self.search.vectors is not None and self.embedder is not None:
+            self.search.vectors.append(unit.uid, self.embedder.embed([unit.search_text])[0])
+
 
 def corpus_digest(corpus):
     """Отпечаток корпуса: по нему видно, что векторный индекс устарел."""

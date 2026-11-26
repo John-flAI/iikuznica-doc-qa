@@ -133,6 +133,20 @@ class Search:
         self.df = Counter(t for tf in self.tf for t in tf)
         self.n = len(self.units)
 
+    def add(self, units):
+        """Новые атомы — например, ответ службы качества — без пересборки индекса."""
+        for unit in units:
+            if unit.uid in self.by_uid:
+                continue
+            tokens = Counter(self.tokenizer.tokens(unit.search_text))
+            self.units.append(unit)
+            self.by_uid[unit.uid] = unit
+            self.tf.append(tokens)
+            self.dl.append(sum(tokens.values()))
+            self.df.update(tokens)
+        self.n = len(self.units)
+        self.avgdl = (sum(self.dl) / self.n) if self.n else 0.0
+
     def idf(self, token):
         return math.log(1 + (self.n - self.df[token] + 0.5) / (self.df[token] + 0.5))
 

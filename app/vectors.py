@@ -64,6 +64,12 @@ class VectorIndex:
         with np.load(Path(path), allow_pickle=False) as data:
             return cls(data['uids'].tolist(), data['matrix'])
 
+    def append(self, uid, vector):
+        """Новый атом (ответ службы качества) — в общую матрицу."""
+        row = np.asarray(vector, dtype=np.float32)
+        self.uids.append(uid)
+        self.matrix = np.vstack([self.matrix, row / (np.linalg.norm(row) + 1e-12)])
+
     def search(self, vector, k=30):
         query = np.asarray(vector, dtype=np.float32)
         query /= np.linalg.norm(query) + 1e-12
