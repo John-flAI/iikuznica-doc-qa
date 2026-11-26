@@ -21,7 +21,12 @@ CANDIDATE_FLOOR = 0.45    # ниже — фрагмент не показыва�
 PER_DOCUMENT = 3          # сколько лучших фрагментов берём из каждого регламента
 MAX_CLARIFICATIONS = 3    # после этого агент прямо говорит, что однозначного ответа нет
 KNOWLEDGE = 'kb'             # «документ» с ответами службы качества
+GIVE_UP_FLOOR = 0.60        # «нет ответа» при столь похожих фрагментах переспрашиваем у модели
 NUMBER = re.compile(r'\d+(?:[.,]\d+)?')
+
+GIVE_UP_CHECK = ('Среди фрагментов есть близкие к вопросу. Если ответ зависит от условия, которого нет '
+                 'в вопросе, — задай уточняющий вопрос (clarify). Если прямой ответ во фрагментах есть — '
+                 'приведи его (answer). not_found — только если фрагменты действительно о другом.')
 
 SYSTEM = """Ты — внутренний агент компании. Сотрудник задаёт вопрос, а ты находишь ответ в регламентах.
 
@@ -31,7 +36,7 @@ action = "answer" — фрагменты дают прямой ответ, и о
 action = "clarify" — фрагменты дают разные ответы в зависимости от условия, которого нет в вопросе: в разных регламентах разные сроки, ответственные или запреты; либо вопрос можно понять по-разному. Задай ОДИН короткий вопрос и предложи 2–4 варианта. Если различие — между регламентами, варианты должны быть названиями регламентов точно как в поле «Регламент» у фрагментов.
 Фрагменты из базы знаний — это ответы службы качества. Они приоритетнее регламентов: если регламент говорит иначе, приведи ответ службы качества и укажи на расхождение.
 Не отвечай пунктом, который сам начинается с условия («если», «при», «в случае»), пока это условие не согласовано с сотрудником, — сначала уточни его.
-action = "not_found" — ни один фрагмент не отвечает на вопрос. Если фрагменты лишь упоминают тему, но не дают конкретного правила, срока, числа или порядка действий — это тоже not_found.
+action = "not_found" — ни один фрагмент не отвечает на вопрос. Если фрагменты лишь упоминают тему, но не дают конкретного правила, срока, числа или порядка действий — это тоже not_found. Но если фрагменты о том, о чём спросили, и ответ зависит от условия — это не not_found, а clarify.
 
 Возвращай только JSON:
 {"action": "answer" | "clarify" | "not_found",
@@ -87,6 +92,8 @@ class Agent:
             decision.route, decision.cites, decision.error = 'degraded', self.best_of_each(query, scope), reply.error
             return decision
         choice = self.parse(reply.text)
+        if choice.get('action') == 'not_found' and self.strongest(candidates) >= GIVE_UP_FLOOR:
+            choice = self.parse(self.second_opinion(question, history, candidates, decision))
         if choice.get('action') == 'answer':
             self.decide_answer(choice, decision, candidates, scope)
         elif choice.get('action') == 'clarify':
@@ -100,6 +107,17 @@ class Agent:
         except ValueError:                      # не-JSON или обрыв — решения нет
             return {}
         return choice if isinstance(choice, dict) else {}
+
+    def second_opinion(self, question, history, candidates, decision):
+        """Модель сдалась, а фрагменты близки к вопросу: один раз напоминаем про уточнение."""
+        reply = self.llm.chat(self.messages(question, history, candidates)
+                              + [{'role': 'user', 'content': GIVE_UP_CHECK}])
+        decision.replies.append(reply)
+        decision.usage.add(reply, 'decide-again')
+        return reply.text
+
+    def strongest(self, candidates):
+        return max((self.relevance(c[1], c[2]) for c in candidates.values()), default=0.0)
 
     def decide_answer(self, choice, decision, candidates, scope):
         wanted = choice.get('cites')

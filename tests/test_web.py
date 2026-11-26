@@ -44,6 +44,12 @@ class Stand(unittest.TestCase):
         self.assertEqual(health['regulations'], 4)
         self.assertTrue(health['examples'])
 
+    def test_new_session_is_created_on_request(self):
+        first = self.client.post('/api/session').json()['id']
+        second = self.client.post('/api/session').json()['id']
+        self.assertTrue(first and second and first != second)
+        self.assertEqual(self.client.get('/api/session/' + first).json(), {'id': first, 'messages': []})
+
     def test_ask_without_session_creates_one(self):
         reply = self.client.post('/api/ask', json={'text': 'Как оформить отпуск за свой счёт?'}).json()
         self.assertEqual(reply['route'], 'not_found')

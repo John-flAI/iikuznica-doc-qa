@@ -44,12 +44,9 @@ button { cursor: pointer; }
 .source .quote { text-align: left; }
 
 .options { display: flex; flex-wrap: wrap; gap: 8px; }
-.option { background: var(--panel); border: 1px solid var(--accent); color: var(--accent); border-radius: 999px; padding: 6px 14px 6px 8px; display: inline-flex; align-items: center; gap: 8px; }
+.option { background: var(--panel); border: 1px solid var(--accent); color: var(--accent); border-radius: 12px; padding: 8px 14px; text-align: left; }
 .option:hover { background: var(--accent); color: var(--accent-ink); }
-.option .key { display: inline-block; min-width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 12px; }
-.option:hover .key { background: var(--panel); color: var(--accent); }
-.option.picked { border-color: var(--muted); color: var(--muted); pointer-events: none; }
-.option.picked .key { background: var(--muted); color: var(--panel); }
+.option.picked { border-color: var(--muted); color: var(--muted); background: var(--panel); pointer-events: none; }
 
 .ticket { width: 100%; border: 1px solid #ecd9a4; background: #fffdf5; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .ticket pre { margin: 0; white-space: pre-wrap; font: 13px/1.45 inherit; color: var(--ink); max-height: 260px; overflow-y: auto; }

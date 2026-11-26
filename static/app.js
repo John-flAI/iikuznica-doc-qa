@@ -16,7 +16,7 @@ app.classList.add('mode-' + mode);
 if (mode !== 'full') app.classList.remove('panel-closed');
 
 let sid = localStorage.getItem('regqa.sid') || null;
-let lastId = 0, busy = false, tab = 'qc', tickets = [], ticketMap = {}, sources = [], pickGroup = null;
+let lastId = 0, busy = false, tab = 'qc', tickets = [], ticketMap = {}, sources = [];
 
 /* ---- базовое ---- */
 
@@ -131,14 +131,12 @@ function show(entry) {
       meta.clarify.options.forEach((option, i) => {
         const chip = button('option', '', () => {
           group.querySelectorAll('.option').forEach((o) => o.classList.add('picked'));
-          pickGroup = null;
           send(option.text);
         });
-        chip.append(el('span', 'key', String(i + 1)), el('span', '', option.text));
+        chip.textContent = option.text;
         group.append(chip);
       });
-      pickGroup = group;
-      node.append(group, el('div', 'meta', 'Выберите вариант (клавиши 1–9) или напишите свой ответ.'));
+      node.append(group, el('div', 'meta', 'Выберите вариант или напишите свой ответ.'));
     }
     if (meta.ticket) node.append(ticketBlock({ meta }));
     if (meta.retry) node.append(button('primary', 'Повторить вопрос', () => send(lastQuestion)));
@@ -374,13 +372,8 @@ $('#ask-form').addEventListener('submit', (event) => { event.preventDefault(); s
 input.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(input.value); }
 });
-document.addEventListener('keydown', (event) => {
-  const chip = pickGroup && event.target.tagName !== 'TEXTAREA' && event.target.tagName !== 'INPUT' &&
-               pickGroup.querySelectorAll('.option')[Number(event.key) - 1];
-  if (chip) chip.click();
-});
 $('#new-dialog').addEventListener('click', async () => {
-  sid = null; lastId = 0; sources = []; pickGroup = null;
+  sid = null; lastId = 0; sources = [];
   messagesEl.replaceChildren();
   welcome();
   const session = await api('/api/session', { method: 'POST' });

@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 
-from app.agent import Agent
+from app.agent import GIVE_UP_CHECK, Agent
 from app.engine import load_engine
 from app.llm import Reply
 
@@ -126,6 +126,27 @@ class AgentLogic(unittest.TestCase):
         self.assertIn('[%s] Регламент: «Пресейловая деятельность Дирекции ИБ». Адрес: %s' % (uid, unit.address),
                       agent.llm.shown)
         self.assertIn(unit.quote, agent.llm.shown)
+
+    def test_giving_up_on_similar_fragments_gets_a_second_opinion(self):
+        """Модель сказала «нет ответа», а фрагменты близки к вопросу — один раз напоминаем про уточнение."""
+        script = [ok('{"action": "not_found"}'),
+                  ok(json.dumps({'action': 'clarify', 'clarify': {'question': 'Какая ситуация?', 'options': ['А', 'Б']}}))]
+        llm = FakeLLM(ok('{}'))
+        shown = []
+
+        def chat(messages, max_tokens=600, temperature=0):
+            shown.append(messages)
+            return script.pop(0)
+        llm.chat = chat
+        decision = Agent(self.engine, llm).ask('Кто готовит ТКП, если заказчик уже выбрал продукт?')
+        self.assertEqual((decision.route, len(decision.replies)), ('clarify', 2))
+        self.assertEqual(shown[1][-1]['content'], GIVE_UP_CHECK)
+
+    def test_giving_up_on_distant_fragments_is_final(self):
+        agent = self.agent(ok('{"action": "not_found"}'))
+        unit = self.engine.corpus.get('f3:5.1')
+        agent.candidates = lambda query, scope=None: {unit.uid: (unit, 0.5, 0.5)}   # похоже, но не сильно
+        self.assertEqual((agent.ask(RISKS).route, agent.llm.calls), ('not_found', 1))
 
 
 if __name__ == '__main__':

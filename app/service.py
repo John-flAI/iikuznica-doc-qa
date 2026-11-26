@@ -46,9 +46,8 @@ def letter(ticket):
 def kb_unit(ticket):
     """Запись базы знаний — такой же искомый атом, как пункт регламента."""
     return Unit('%s:%d' % (KNOWLEDGE, ticket['id']), KNOWLEDGE, '', ticket['answer'], 'Ответ службы качества',
-                (('Ответ службы качества, %s, %s' % (ticket['answered_by'], (ticket['answered_at'] or '')[:10]), '',
-                  SECTION),
-                 ('Вопрос сотрудника: %s' % ticket['question'], '', 'label')),
+                (('Ответ службы качества, %s, %s. Вопрос сотрудника: %s'
+                  % (ticket['answered_by'], (ticket['answered_at'] or '')[:10], ticket['question']), '', SECTION),),
                 TEXT)
 
 
@@ -69,6 +68,9 @@ class Service:
         return unit
 
     # ---- чат сотрудника ----
+
+    def new_session(self, mode='full'):
+        return self.store.session(mode=mode)['id']
 
     def ask(self, session_id, text):
         text = ' '.join((text or '').split())
@@ -134,7 +136,7 @@ class Service:
         """Источник так, как его показывает интерфейс."""
         address = unit.address
         if unit.doc == KNOWLEDGE:
-            address = address.replace(' → подпункт', ' · ').replace('Вопрос сотрудника', 'Вопрос').rstrip('.')
+            address = '%s · запрос №%s' % (unit.crumbs[0][1], unit.uid.split(':')[1])
         return {'uid': unit.uid, 'doc': unit.doc, 'doc_title': self.engine.corpus.title(unit.doc),
                 'address': address, 'quote': unit.quote}
 
