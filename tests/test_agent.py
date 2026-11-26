@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Логика агента на поддельной модели: что проходит в ответ, а что отсекается кодом."""
+"""Логика агента на поддельной модели: что проходит в ответ, а что отсекается кодом и судьёй."""
 import json
 import unittest
 from pathlib import Path
@@ -10,10 +10,30 @@ from app.llm import Reply
 
 DATA = Path(__file__).resolve().parents[1] / 'data'
 RISKS = 'Как часто надо обновлять реестр рисков?'
+DEADLINE = 'В какой срок ПА обязан принять заявку в работу?'
+WRITER_MARK, JUDGE_MARK = 'Вы пишете ответ сотруднику', 'Вы проверяете ответ агента'
 
 
 def ok(text):
     return Reply(text=text, ok=True, model='fake', prompt_tokens=1000, completion_tokens=50)
+
+
+def answer(*uids):
+    return ok(json.dumps({'action': 'answer', 'cites': list(uids)}))
+
+
+def flow(decide, texts='Ответ по регламенту.', verdict=None):
+    """Поддельная модель на всём цикле ответа: решение → текст → вердикт судьи."""
+    queue = list(texts) if isinstance(texts, (list, tuple)) else None
+
+    def chat(messages, max_tokens=600, temperature=0):
+        system = messages[0]['content']
+        if JUDGE_MARK in system:
+            return verdict or ok('{"supported": true, "unsupported": []}')
+        if WRITER_MARK in system:
+            return ok(json.dumps({'text': queue.pop(0) if queue else texts}, ensure_ascii=False))
+        return decide(messages) if callable(decide) else decide
+    return chat
 
 
 class FakeLLM:
@@ -36,28 +56,35 @@ class AgentLogic(unittest.TestCase):
     def agent(self, reply, **kwargs):
         return Agent(self.engine, FakeLLM(reply), **kwargs)
 
+    def flowing(self, decide, texts='Ответ по регламенту.', verdict=None):
+        llm = FakeLLM(ok('{}'))
+        llm.chat = flow(decide, texts, verdict)
+        return Agent(self.engine, llm)
+
     def one_per_document(self, question):
         groups = self.engine.search.per_document(question, k_each=3)
         return {doc: hits[0].uid for doc, hits in groups.items() if hits}
 
+    # ---- выбор пунктов ----
+
     def test_answer_keeps_only_known_citations_in_order(self):
         uid = self.one_per_document('Сколько заявок может быть у одного ПА?')['f3']
-        agent = self.agent(ok(json.dumps({'action': 'answer', 'cites': ['нет-такого', uid, uid], 'why': ''})))
-        decision = agent.ask('Сколько заявок может быть у одного ПА?')
+        decide = ok(json.dumps({'action': 'answer', 'cites': ['нет-такого', uid, uid], 'why': ''}))
+        decision = self.flowing(decide).ask('Сколько заявок может быть у одного ПА?')
+        self.assertEqual((decision.route, decision.text), ('answer', 'Ответ по регламенту.'))
         self.assertEqual([c[0].uid for c in decision.cites], [uid])
-        self.assertEqual(decision.route, 'answer')
-        self.assertEqual(decision.tokens, 1050)
+        self.assertEqual((decision.checks['attempts'], decision.checks['judge']), (1, 'passed'))
+        self.assertEqual(sorted(decision.usage.by_step), ['decide', 'judge', 'write'])   # три вызова модели
+        self.assertEqual(decision.tokens, 3 * 1050)
 
     def test_citation_that_does_not_resemble_the_question_is_rejected(self):
         uid = self.one_per_document('Сколько заявок может быть у одного ПА?')['f3']
-        agent = self.agent(ok(json.dumps({'action': 'answer', 'cites': [uid]})), min_similarity=1.01)
-        self.assertEqual(agent.ask('Сколько заявок может быть у одного ПА?').route, 'not_found')
+        self.assertEqual(self.agent(answer(uid), min_similarity=1.01).ask(DEADLINE).route, 'not_found')
 
     def test_answer_from_two_regulations_becomes_a_question(self):
         uids = self.one_per_document(RISKS)
         self.assertGreaterEqual(len(uids), 2)
-        agent = self.agent(ok(json.dumps({'action': 'answer', 'cites': list(uids.values())})))
-        decision = agent.ask(RISKS)
+        decision = self.agent(answer(*uids.values())).ask(RISKS)
         self.assertEqual(decision.route, 'clarify')
         self.assertGreaterEqual(len(decision.option_docs), 2)           # не менее двух регламентов
         self.assertTrue(set(decision.option_docs.values()) <= set(uids))
@@ -71,7 +98,7 @@ class AgentLogic(unittest.TestCase):
 
     def test_after_the_regulation_is_named_two_regulations_no_longer_block_the_answer(self):
         uids = self.one_per_document(RISKS)
-        agent = self.agent(ok(json.dumps({'action': 'answer', 'cites': list(uids.values())})), min_similarity=0)
+        agent = self.agent(answer(*uids.values()), min_similarity=0)
         decision = agent.ask(RISKS, [('В каком регламенте?', 'Организация проектной деятельности', 'f2')])
         self.assertEqual(decision.route, 'answer')
         self.assertTrue(decision.cites)
@@ -79,26 +106,15 @@ class AgentLogic(unittest.TestCase):
 
     def test_clarification_options_naming_a_regulation_are_bound_to_it(self):
         title = self.engine.corpus.title('f4')
-        agent = self.agent(ok(json.dumps({'action': 'clarify', 'clarify': {
-            'question': 'В каком подразделении?', 'options': ['Регламент: «%s»' % title, 'Другое']}})))
-        decision = agent.ask('За какое время назначают РП?')
+        reply = ok(json.dumps({'action': 'clarify', 'clarify': {
+            'question': 'В каком подразделении?', 'options': ['Регламент: «%s»' % title, 'Другое']}}))
+        decision = self.agent(reply).ask('За какое время назначают РП?')
         self.assertEqual(decision.route, 'clarify')
         self.assertEqual(decision.option_docs, {'Регламент: «%s»' % title: 'f4'})
 
-    def test_explanation_with_a_foreign_number_is_not_shown(self):
-        agent = self.agent(ok('{}'))
-        unit = self.engine.corpus.get('f3:5.1')               # «…в течение 1 рабочего дня…»
-        shown = (unit, 1.0, 1.0)
-        self.assertEqual(agent.safe_why('По пункту 5.1 срок — 1 рабочий день', [shown]),
-                         'По пункту 5.1 срок — 1 рабочий день')
-        self.assertEqual(agent.safe_why('Срок — 5 рабочих дней', [shown]), '')
-        self.assertEqual(agent.safe_why('Пункт задаёт срок приёмки заявки', [shown]), 'Пункт задаёт срок приёмки заявки')
-
     def test_unavailable_model_degrades_to_raw_fragments(self):
-        agent = self.agent(Reply(ok=False, error='HTTP 429'))
-        decision = agent.ask(RISKS)
-        self.assertEqual(decision.route, 'degraded')
-        self.assertEqual(decision.error, 'HTTP 429')
+        decision = self.agent(Reply(error='HTTP 429')).ask(RISKS)
+        self.assertEqual((decision.route, decision.error), ('degraded', 'HTTP 429'))
         self.assertGreaterEqual(len({c[0].doc for c in decision.cites}), 1)
 
     def test_unparseable_answer_is_not_found(self):
@@ -107,15 +123,15 @@ class AgentLogic(unittest.TestCase):
                 self.assertEqual(self.agent(ok(text)).ask(RISKS).route, 'not_found')
 
     def test_too_many_clarifications_end_honestly(self):
-        agent = self.agent(ok(json.dumps({'action': 'clarify', 'clarify': {'question': 'Где?', 'options': ['А', 'Б']}})))
+        reply = ok(json.dumps({'action': 'clarify', 'clarify': {'question': 'Где?', 'options': ['А', 'Б']}}))
+        agent = self.agent(reply)
         decision = agent.ask(RISKS, [('Где?', 'А'), ('Когда?', 'Б'), ('Кто?', 'В')])
         self.assertEqual(decision.route, 'unresolved')
         self.assertEqual(agent.llm.calls, 0)                  # лимит уточнений — модель уже не зовём
 
     def test_off_topic_question_never_reaches_the_model(self):
-        agent = self.agent(ok(json.dumps({'action': 'answer', 'cites': ['f3:5.1']})))
-        decision = agent.ask('Как оформить отпуск за свой счёт?')
-        self.assertEqual(decision.route, 'not_found')
+        agent = self.agent(answer('f3:5.1'))
+        self.assertEqual(agent.ask('Как оформить отпуск за свой счёт?').route, 'not_found')
         self.assertEqual(agent.llm.calls, 0)
 
     def test_model_sees_only_verbatim_fragments_with_addresses(self):
@@ -129,14 +145,14 @@ class AgentLogic(unittest.TestCase):
 
     def test_giving_up_on_similar_fragments_gets_a_second_opinion(self):
         """Модель сказала «нет ответа», а фрагменты близки к вопросу — один раз напоминаем про уточнение."""
-        script = [ok('{"action": "not_found"}'),
-                  ok(json.dumps({'action': 'clarify', 'clarify': {'question': 'Какая ситуация?', 'options': ['А', 'Б']}}))]
-        llm = FakeLLM(ok('{}'))
+        script = ['{"action": "not_found"}',
+                  json.dumps({'action': 'clarify', 'clarify': {'question': 'Какая ситуация?', 'options': ['А', 'Б']}})]
         shown = []
 
         def chat(messages, max_tokens=600, temperature=0):
             shown.append(messages)
-            return script.pop(0)
+            return ok(script.pop(0))
+        llm = FakeLLM(ok('{}'))
         llm.chat = chat
         decision = Agent(self.engine, llm).ask('Кто готовит ТКП, если заказчик уже выбрал продукт?')
         self.assertEqual((decision.route, len(decision.replies)), ('clarify', 2))
@@ -147,6 +163,41 @@ class AgentLogic(unittest.TestCase):
         unit = self.engine.corpus.get('f3:5.1')
         agent.candidates = lambda query, scope=None: {unit.uid: (unit, 0.5, 0.5)}   # похоже, но не сильно
         self.assertEqual((agent.ask(RISKS).route, agent.llm.calls), ('not_found', 1))
+
+    # ---- текст ответа и его проверка ----
+
+    def test_text_with_a_foreign_number_is_rewritten_before_any_judge(self):
+        texts = ['Заявку нужно принять за 5 рабочих дней.', 'ПА обязан принять заявку в работу в течение 1 рабочего дня.']
+        decision = self.flowing(answer('f3:5.1'), texts).ask(DEADLINE)
+        self.assertEqual((decision.text, decision.checks['attempts'], decision.checks['judge']),
+                         (texts[1], 2, 'rewritten'))
+        self.assertEqual(sorted(decision.usage.by_step), ['decide', 'judge', 'write'])
+        self.assertEqual(decision.usage.by_step['judge']['calls'], 1)   # судью звали один раз — после чистой редакции
+        self.assertEqual(decision.usage.by_step['write']['calls'], 2)
+
+    def test_text_the_judge_rejects_ends_as_verbatim_clauses(self):
+        verdict = ok('{"supported": false, "unsupported": ["рекомендуется согласовать с юристами"]}')
+        decision = self.flowing(answer('f3:5.1'), 'Согласуйте с юристами.', verdict).ask(DEADLINE)
+        self.assertEqual((decision.text, decision.checks['judge'], decision.checks['attempts']), ('', 'failed', 2))
+
+    def test_foreign_facts_are_found_by_code(self):
+        unit = self.engine.corpus.get('f3:5.1')                  # «…в течение 1 рабочего дня …»
+        cites = [(unit, 1.0, 1.0)]
+        numbers, short = Agent(self.engine, None).foreign_facts('За 5 дней ТКП и СБ.', cites)
+        self.assertEqual(numbers, ['число «5» есть в ответе, но его нет в пунктах'])
+        self.assertEqual(short, ['сокращение «ТКП» не встречается в пунктах', 'сокращение «СБ» не встречается в пунктах'])
+        numbers, short = Agent(self.engine, None).foreign_facts('ПА обязан принять заявку в течение 1 рабочего дня.', cites)
+        self.assertEqual((numbers, short), ([], []))           # «ПА» есть в адресе и тексте пункта
+
+    def test_unavailable_writer_leaves_clauses_verbatim(self):
+        def writer_is_down(messages, max_tokens=600, temperature=0):
+            if WRITER_MARK in messages[0]['content']:
+                return Reply(error='HTTP 429')
+            return answer('f3:5.1')
+        llm = FakeLLM(ok('{}'))
+        llm.chat = writer_is_down
+        decision = Agent(self.engine, llm).ask(DEADLINE)
+        self.assertEqual((decision.route, decision.text, decision.checks['judge']), ('answer', '', 'unavailable'))
 
 
 if __name__ == '__main__':

@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 
 from .llm import Usage, parse_json
+from .search import ABBR, WORD
 
 MIN_SIMILARITY = 0.50     # ниже — фрагмент не считается относящимся к вопросу
 CANDIDATE_FLOOR = 0.45    # ниже — фрагмент не показываем модели вовсе
@@ -23,6 +24,17 @@ MAX_CLARIFICATIONS = 3    # после этого агент прямо гово
 KNOWLEDGE = 'kb'             # «документ» с ответами службы качества
 GIVE_UP_FLOOR = 0.60        # «нет ответа» при столь похожих фрагментах переспрашиваем у модели
 NUMBER = re.compile(r'\d+(?:[.,]\d+)?')
+
+WRITER_SYSTEM = """Вы пишете ответ сотруднику по пунктам регламента.
+1. Используйте только сведения из приведённых фрагментов. Ничего не добавляйте от себя: ни сроков, ни правил, ни причин, ни пояснений.
+2. Числа, сроки, названия ролей и сокращения пишите точно как во фрагментах.
+3. От одного до трёх предложений, по-русски, обратитесь к сотруднику на «вы». Номера пунктов не называйте — они будут показаны отдельно.
+4. Если для разных случаев действуют разные правила, так и напишите: «если …, то …; если …, то …».
+5. Если среди фрагментов есть ответ службы качества, он приоритетнее регламента; если он расходится с регламентом, скажите об этом.
+Верните только JSON: {"text": "…"}"""
+
+JUDGE_SYSTEM = """Вы проверяете ответ агента на опору в регламенте. Даны фрагменты и текст ответа. Найдите в тексте утверждения, которых нет во фрагментах: добавленные факты, числа, сроки, правила, причины, рекомендации. Перефразирование фрагмента и обращение к сотруднику ошибкой не считаются.
+Верните только JSON: {"supported": true, "unsupported": []} или {"supported": false, "unsupported": ["цитата из текста ответа", …]}"""
 
 GIVE_UP_CHECK = ('Среди фрагментов есть близкие к вопросу. Если ответ зависит от условия, которого нет '
                  'в вопросе, — задай уточняющий вопрос (clarify). Если прямой ответ во фрагментах есть — '
@@ -54,6 +66,8 @@ class Decision:
     options: list = field(default_factory=list)  # варианты ответа сотрудника
     option_docs: dict = field(default_factory=dict)   # вариант → регламент, который он называет
     error: str = ''                             # почему модель не ответила (route = degraded)
+    text: str = ''                              # связный ответ модели по пунктам; пустой — пункты дословно
+    checks: dict = field(default_factory=dict)   # чем подтверждён текст: attempts · judge · issues
     turns: int = 0                              # сколько было раундов «поиск → решение»
     replies: list = field(default_factory=list)  # сырые ответы модели — для журнала вызовов
     usage: Usage = field(default_factory=Usage)
@@ -95,7 +109,7 @@ class Agent:
         if choice.get('action') == 'not_found' and self.strongest(candidates) >= GIVE_UP_FLOOR:
             choice = self.parse(self.second_opinion(question, history, candidates, decision))
         if choice.get('action') == 'answer':
-            self.decide_answer(choice, decision, candidates, scope)
+            self.decide_answer(choice, decision, candidates, scope, question, history)
         elif choice.get('action') == 'clarify':
             self.decide_clarify(choice, decision, query, scope)
         return decision
@@ -119,7 +133,7 @@ class Agent:
     def strongest(self, candidates):
         return max((self.relevance(c[1], c[2]) for c in candidates.values()), default=0.0)
 
-    def decide_answer(self, choice, decision, candidates, scope):
+    def decide_answer(self, choice, decision, candidates, scope, question, history):
         wanted = choice.get('cites')
         chosen = [candidates[c] for c in dict.fromkeys(wanted if isinstance(wanted, list) else [])
                   if c in candidates]
@@ -136,7 +150,7 @@ class Agent:
             decision.option_docs = dict(zip(decision.options, regulations))
             return
         decision.route, decision.cites = 'answer', passing
-        decision.why = self.safe_why(choice.get('why'), passing)
+        decision.text, decision.checks = self.compose(question, history, passing, decision)
 
     def decide_clarify(self, choice, decision, query, scope):
         clarify = choice.get('clarify') or {}
@@ -183,23 +197,105 @@ class Agent:
         """
         return similarity if self.engine.search.vectors is not None else coverage
 
-    def messages(self, question, history, candidates):
+    def fragments(self, cites, with_ids):
+        lines = []
+        for unit, _, _ in cites:
+            source = 'База знаний' if unit.doc == KNOWLEDGE else 'Регламент'
+            lines.append('%s%s: «%s». Адрес: %s\n%s' % (
+                '[%s] ' % unit.uid if with_ids else '', source,
+                self.engine.corpus.title(unit.doc), unit.address, unit.quote))
+        return lines
+
+    def thread(self, question, history):
         lines = ['Вопрос сотрудника: %s' % question]
         for asked, answered, *rest in history:
             lines += ['Уточнение агента: %s' % asked, 'Ответ сотрудника: %s' % answered]
+        return lines
+
+    def messages(self, question, history, candidates):
+        lines = self.thread(question, history)
         lines.append('Фрагменты регламентов:')
-        for uid, (unit, _, _) in candidates.items():
-            source = 'База знаний' if unit.doc == KNOWLEDGE else 'Регламент'
-            lines.append('[%s] %s: «%s». Адрес: %s\n%s' % (
-                uid, source, self.engine.corpus.title(unit.doc), unit.address, unit.quote))
+        lines += self.fragments(list(candidates.values()), with_ids=True)
         return [{'role': 'system', 'content': SYSTEM},
                 {'role': 'user', 'content': '\n'.join(lines)}]
 
-    def safe_why(self, why, cites):
-        """Пояснение модели показываем, только если все числа в нём есть в цитатах или их номерах."""
-        why = ' '.join(str(why or '').split())[:400]
-        cited = {n.replace(',', '.') for c in cites
-                 for n in NUMBER.findall(c[0].text) + ([c[0].number] if c[0].number else [])}
-        if not why or any(n.replace(',', '.') not in cited for n in NUMBER.findall(why)):
+    def compose(self, question, history, cites, decision):
+        """Связный текст по выбранным пунктам — и проверка, что в нём нет ничего от себя.
+
+        Код сверяет числа и сокращения с пунктами, судья-модель ищет утверждения без опоры.
+        Провал — одна переписка с замечаниями. Не прошло ни одной редакции — текст пустой,
+        и сотруднику показывают пункты дословно.
+        """
+        issues, checks = [], {'attempts': 0, 'judge': 'passed', 'issues': []}
+        for attempt in range(2):
+            lines = self.thread(question, history)
+            lines.append('Фрагменты регламентов:')
+            lines += self.fragments(cites, with_ids=False)
+            if issues:
+                lines.append('Замечания проверки к предыдущей редакции — устраните их:')
+            lines += ['— %s' % note for note in issues]
+            reply = self.llm.chat([{'role': 'system', 'content': WRITER_SYSTEM},
+                                   {'role': 'user', 'content': '\n'.join(lines)}])
+            decision.replies.append(reply)
+            decision.usage.add(reply, 'write')
+            checks['attempts'] = attempt + 1
+            if not reply.ok:
+                checks['judge'] = 'unavailable'
+                return '', checks
+            text = self.written(reply.text)
+            numbers, short = self.foreign_facts(text, cites)
+            if text and not numbers:
+                ruling = self.judge(question, history, cites, text, short, decision)
+                if ruling is None:
+                    checks['judge'] = 'unavailable'
+                    return '', checks
+                if ruling.get('supported') is not False:
+                    return text, checks
+                issues = [str(x) for x in ruling.get('unsupported') or []][:5] or ['есть утверждения без опоры в пунктах']
+                checks['judge'] = 'rewritten'
+            else:
+                issues = numbers + short if text else ['ответ не в JSON']
+                checks['judge'] = 'rewritten'
+            checks['issues'] = issues
+        checks['judge'] = 'failed'
+        return '', checks
+
+    @staticmethod
+    def written(text):
+        """Текст ответа из ответа модели: JSON с полем text либо просто текст."""
+        try:
+            choice = parse_json(text)
+        except ValueError:
+            choice = None
+        if isinstance(choice, dict) and isinstance(choice.get('text'), str):
+            text = choice['text']
+        elif '{' in text:
             return ''
-        return why
+        return ' '.join(text.split())[:1200]
+
+    def foreign_facts(self, text, cites):
+        """([числа, которых нет в пунктах], [сокращения, которых нет в пунктах])."""
+        # адрес не берём: номера разделов и пунктов в нём — не факты, и иначе «раздел 5» оправдает любое «5»
+        known = ' '.join('%s %s %s' % (c[0].text, c[0].number, c[0].title) for c in cites)
+        numbers = {n.replace(',', '.') for n in NUMBER.findall(known)}
+        abbrs = {w for w in WORD.findall(known) if ABBR.match(w)}
+        seen_numbers = dict.fromkeys(NUMBER.findall(text))
+        seen_abbrs = dict.fromkeys(w for w in WORD.findall(text) if ABBR.match(w))
+        return (['число «%s» есть в ответе, но его нет в пунктах' % n
+                 for n in seen_numbers if n.replace(',', '.') not in numbers],
+                ['сокращение «%s» не встречается в пунктах' % w for w in seen_abbrs if w not in abbrs])
+
+    def judge(self, question, history, cites, text, short, decision):
+        """Судья-модель: каждое ли утверждение ответа следует из пунктов. None — модель недоступна."""
+        lines = self.thread(question, history)
+        lines.append('Фрагменты регламентов:')
+        lines += self.fragments(cites, with_ids=False)
+        lines.append('Текст ответа:')
+        lines.append(text)
+        if short:
+            lines.append('Отдельно проверьте эти сокращения: ' + '; '.join(short))
+        reply = self.llm.chat([{'role': 'system', 'content': JUDGE_SYSTEM},
+                               {'role': 'user', 'content': '\n'.join(lines)}])
+        decision.replies.append(reply)
+        decision.usage.add(reply, 'judge')
+        return None if not reply.ok else self.parse(reply.text)

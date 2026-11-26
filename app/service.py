@@ -28,6 +28,7 @@ NOTICES = {
                   'и уточнения не сняли различие. Подготовил письмо в службу качества.',
     'degraded': 'Модель временно недоступна. Показываю найденные пункты без обработки модели — '
                 'проверьте их самостоятельно или повторите вопрос через минуту.',
+    'verbatim': 'Связный текст не прошёл проверку на опору в регламенте, поэтому привожу пункты дословно.',
 }
 
 
@@ -104,10 +105,12 @@ class Service:
         route = decision.route
         message = {'role': 'agent', 'route': route, 'tokens': decision.tokens, 'seconds': round(seconds, 1),
                    'clarifications': len(history)}
-        common = dict(reply=decision.replies[-1] if decision.replies else None, turns=decision.turns,
-                      clarifications=history)
+        common = dict(turns=decision.turns, clarifications=history)
         if route == 'answer':
-            message.update(text=decision.why, sources=[self.source(c[0]) for c in decision.cites])
+            message.update(text=decision.text, checks=decision.checks,
+                           sources=[self.source(c[0]) for c in decision.cites])
+            if not decision.text:
+                message['notice'] = NOTICES['verbatim']
             message['priority'] = any(s['doc'] == KNOWLEDGE for s in message['sources'])
             message['conflict'] = message['priority'] and any(s['doc'] != KNOWLEDGE for s in message['sources'])
             self.store.touch_question(question['id'], route=route, uids=[s['uid'] for s in message['sources']],
@@ -130,6 +133,8 @@ class Service:
                            ticket={'id': ticket_id, 'letter': letter(self.store.ticket(ticket_id))})
             self.store.touch_question(question['id'], route=route, uids=[s['uid'] for s in sources],
                                       ticket_id=ticket_id, awaiting=None, **common)
+        for reply in decision.replies:          # токены всех вызовов раунда: решение, текст ответа, судья
+            self.store.touch_question(question['id'], reply=reply)
         return message
 
     def source(self, unit):

@@ -9,6 +9,11 @@ const ROUTE_NAMES = {
   answer: 'ответ по регламенту', clarify: 'уточняющий вопрос', not_found: 'нет ответа в регламентах',
   unresolved: 'однозначного ответа нет', degraded: 'модель недоступна', qc: 'ответ службы качества',
 };
+const CHECK_NAMES = {
+  passed: 'проверка на опору в регламенте пройдена', rewritten: 'текст переписан после проверки',
+  failed: 'текст не прошёл проверку — пункты дословно', unavailable: 'проверка недоступна',
+  invalid: 'модель не вернула текст',
+};
 const THINKING_STEPS = ['Ищу в регламентах…', 'Модель решает: ответить, уточнить или признать, что ответа нет…', 'Проверяю ответ…'];
 
 const mode = ({'/user': 'user', '/qc': 'qc', '/analytics': 'analytics'})[location.pathname] || 'full';
@@ -118,6 +123,7 @@ function show(entry) {
     const node = el('div', 'msg agent');
     node.append(el('div', 'who', 'Агент'));
     if (meta.text) node.append(el('div', 'bubble', meta.text));
+    if (meta.notice) node.append(el('div', 'notice', meta.notice));
     if (meta.priority && meta.conflict) {
       node.append(el('div', 'priority', 'Ответ службы качества приоритетнее регламента: регламент может быть в актуализации.'));
     }
@@ -141,6 +147,7 @@ function show(entry) {
     if (meta.ticket) node.append(ticketBlock({ meta }));
     if (meta.retry) node.append(button('primary', 'Повторить вопрос', () => send(lastQuestion)));
     const facts = [ROUTE_NAMES[meta.route] || meta.route];
+    if (meta.checks) facts.push(CHECK_NAMES[meta.checks.judge] || meta.checks.judge);
     if (meta.tokens) facts.push(meta.tokens + ' ток.');
     if (meta.seconds) facts.push(meta.seconds + ' с');
     if (meta.clarifications) facts.push('уточнений: ' + meta.clarifications);

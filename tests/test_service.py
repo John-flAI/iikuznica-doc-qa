@@ -35,7 +35,14 @@ class ServiceFlow(unittest.TestCase):
         """Поддельная модель: либо фиксированный ответ, либо функция от показанных ей сообщений."""
         llm = FakeLLM(reply)
         if decide is not None:
-            llm.chat = lambda messages, max_tokens=600, temperature=0: decide(messages)
+            def chat(messages, max_tokens=600, temperature=0):
+                system = messages[0]['content']
+                if 'Вы пишете ответ сотруднику' in system:
+                    return ok('{"text": "Ответ по регламенту."}')
+                if 'Вы проверяете ответ агента' in system:
+                    return ok('{"supported": true, "unsupported": []}')
+                return decide(messages)
+            llm.chat = chat
         return Service(self.engine, llm, self.store)
 
     def test_answer_closes_the_question_and_counts_tokens(self):
