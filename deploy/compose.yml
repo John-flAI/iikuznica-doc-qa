@@ -1,0 +1,46 @@
+# Стенд на сервере: приложение и отдельный сервер эмбеддингов (BGE-M3, CPU).
+# Запуск: docker compose --env-file .env up -d --build
+# Ключи модели — в .env рядом с этим файлом (шаблон — .env.example в корне репозитория).
+name: iikuznica
+
+services:
+  stand:
+    image: iikuznica-stand:latest
+    build: ..
+    container_name: iikuznica-stand
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      EMBED_BASE_URL: http://embeddings:11434/v1
+      REGQA_STATE: /var/lib/iikuznica
+    volumes:
+      - stand-state:/var/lib/iikuznica
+    ports:
+      - "127.0.0.1:8087:8080"      # наружу отдаёт reverse proxy сервера
+    mem_limit: 1g
+    depends_on:
+      embeddings:
+        condition: service_started_healthy
+
+  embeddings:
+    image: ollama/ollama:latest
+    container_name: iikuznica-embeddings
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h        # не выгружать модель между вопросами
+      OLLAMA_MAX_LOADED_MODELS: 1
+    volumes:
+      - embeddings-models:/root/.ollama
+    mem_limit: 3g
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q bge-m3"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 600s
+    # при первом старте скачиваем единственную модель — и держим сервер
+    entrypoint: ["/bin/sh", "-c", "ollama serve >/dev/null 2>&1 & ollama pull bge-m3 >/dev/null 2>&1; wait"]
+
+volumes:
+  stand-state:
+  embeddings-models:

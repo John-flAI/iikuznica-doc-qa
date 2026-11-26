@@ -44,7 +44,7 @@ def corpus_digest(corpus):
 
 def index_path(digest):
     name = re.sub(r'[^A-Za-z0-9._-]+', '_', config.EMBED_MODEL)
-    return config.DATA_DIR / 'index' / ('%s.%s.npz' % (name, digest[:12]))
+    return config.STATE_DIR / 'index' / ('%s.%s.npz' % (name, digest[:12]))
 
 
 def load_engine(data_dir=None, with_vectors=True):

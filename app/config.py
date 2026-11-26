@@ -8,8 +8,9 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.environ.get('REGQA_DATA', ROOT / 'data'))
-DB_PATH = Path(os.environ.get('REGQA_DB', DATA_DIR / 'state.db'))
+DATA_DIR = Path(os.environ.get('REGQA_DATA', ROOT / 'data'))     # корпус регламентов: только читается
+STATE_DIR = Path(os.environ.get('REGQA_STATE', DATA_DIR))        # база, индекс, база знаний — переживает обновление
+DB_PATH = Path(os.environ.get('REGQA_DB', STATE_DIR / 'state.db'))
 
 # Модель эмбеддингов: BGE-M3, лицензия MIT — https://huggingface.co/BAAI/bge-m3
 EMBED_BASE_URL = os.environ.get('EMBED_BASE_URL', 'http://127.0.0.1:11434/v1')

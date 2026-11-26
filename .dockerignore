@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+data/index
+data/*.db
+*.db
+*.npz
+tests
+karkas
+tools
+__pycache__
+*.pyc
+README.md
+requirements-dev.txt
