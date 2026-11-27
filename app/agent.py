@@ -28,6 +28,9 @@ GIVE_UP_FLOOR = 0.60        # «нет ответа» при столь похо
 NUMBER = re.compile(r'\d+(?:[.,]\d+)?')
 MEASURE = re.compile(r'месяц|недел|дн|час|год|процент|руб|штук|раза')   # чем измеряют срок или норму
 ABBREV = re.compile(r'[А-ЯA-Z]{2,}')                                   # аббревиатура в названии регламента
+# уточнение, которое ответ не меняет: пункт даёт срок или правило для общего случая
+NEEDLESS = re.compile(r'пол\w* информаци|вся ли информаци|вс[её] ли (данные|сведения|документы|условия) '
+                      r'предоставл|предоставл\w* ли (вся|пол\w*)', re.I)
 
 WRITER_SYSTEM = """Вы пишете ответ сотруднику по пунктам регламента.
 1. Используйте только сведения из приведённых фрагментов. Ничего не добавляйте от себя: ни сроков, ни правил, ни причин, ни пояснений.
@@ -129,6 +132,8 @@ class Agent:
         choice = self.parse(reply.text)
         if choice.get('action') == 'not_found' and self.strongest(candidates) >= GIVE_UP_FLOOR:
             choice = self.parse(self.second_opinion(question, history, candidates, decision))
+        elif choice.get('action') == 'clarify' and self.needless(choice, candidates):
+            choice = self.parse(self.second_opinion(question, history, candidates, decision))
         if choice.get('action') == 'answer':
             self.decide_answer(choice, decision, candidates, scope, question, history)
         elif choice.get('action') == 'clarify':
@@ -215,6 +220,12 @@ class Agent:
         decision.replies.append(reply)
         decision.usage.add(reply, 'decide-again')
         return reply.text
+
+    def needless(self, choice, candidates):
+        """Модель переспрашивает «предоставлена ли полная информация», хотя фрагменты близки к вопросу:
+        такой вопрос ответ не меняет — один раз просим прямой ответ."""
+        question = str((choice.get('clarify') or {}).get('question') or '')
+        return bool(NEEDLESS.search(question)) and self.strongest(candidates) >= GIVE_UP_FLOOR
 
     def strongest(self, candidates):
         return max((self.relevance(c[1], c[2]) for c in candidates.values()), default=0.0)

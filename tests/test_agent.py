@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Логика агента на поддельной модели: что проходит в ответ, а что отсекается кодом и судьёй."""
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -190,6 +191,43 @@ class AgentLogic(unittest.TestCase):
         decision = agent.ask(RISKS, [('Где?', 'А'), ('Когда?', 'Б'), ('Кто?', 'В')])
         self.assertEqual(decision.route, 'unresolved')
         self.assertEqual(agent.llm.calls, 0)                  # лимит уточнений — модель уже не зовём
+
+    def chatty(self, second):
+        """Поддельная модель: переспрашивает «предоставлена ли полная информация», а после напоминания — как задано."""
+        def decide(messages):
+            if GIVE_UP_CHECK in messages[-1]['content']:
+                return second(messages)
+            return ok(json.dumps({'action': 'clarify', 'clarify': {
+                'question': 'Предоставлена ли полная информация по проекту?', 'options': ['Да', 'Нет']}},
+                ensure_ascii=False))
+        agent = self.flowing(decide)
+        agent.strongest = lambda found: 0.9                    # фрагменты близки к вопросу — прямой ответ в них есть
+        return agent
+
+    def test_needless_clarification_gets_one_reminder_and_then_an_answer(self):
+        shown = []
+
+        def first(messages):
+            shown.append(messages)
+            return answer(re.search(r'\[(f\d:[^\]\s]+)\]', '\n'.join(m['content'] for m in messages)).group(1))
+
+        decision = self.chatty(first).ask('В какой срок координатор назначает руководителя проекта в дирекции ИБ?')
+        self.assertEqual((decision.route, decision.text), ('answer', 'Ответ по регламенту.'))
+        self.assertEqual(len(shown), 1)                         # напоминание — только одно
+
+    def test_persistent_model_may_still_ask(self):
+        always = lambda messages: ok(json.dumps({'action': 'clarify', 'clarify': {'question': 'Да или нет?', 'options': ['Да']}},
+                                                ensure_ascii=False))
+        decision = self.chatty(always).ask(RISKS)
+        self.assertEqual((decision.route, decision.question), ('clarify', 'Да или нет?'))
+
+    def test_clarification_about_regulations_is_not_second_guessed(self):
+        reply = ok(json.dumps({'action': 'clarify', 'clarify': {'question': 'К какому регламенту относится ваш проект?',
+                                                                'options': ['А', 'Б']}}, ensure_ascii=False))
+        agent = self.agent(reply)
+        agent.strongest = lambda found: 0.9
+        self.assertEqual(agent.ask(RISKS).route, 'clarify')
+        self.assertEqual(agent.llm.calls, 1)                   # нужный вопрос модель задаёт сразу
 
     def test_off_topic_question_never_reaches_the_decision(self):
         """Подходящих фрагментов нет: решение по фрагментам не принимается — один вызов классификатора
