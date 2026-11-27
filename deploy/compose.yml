@@ -20,7 +20,7 @@ services:
     mem_limit: 1g
     depends_on:
       embeddings:
-        condition: service_started_healthy
+        condition: service_healthy
 
   embeddings:
     image: ollama/ollama:latest
