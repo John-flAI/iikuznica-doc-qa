@@ -1,0 +1,14 @@
+# За reverse proxy сервера: стенд добавляется в сеть прокси и не публикует порт сам —
+# прокси ходит в контейнер по имени. Базовый compose.yml остаётся самодостаточным.
+# Запуск: docker compose -f compose.yml -f compose.proxy.yml --env-file .env up -d --build
+# PROXY_NETWORK — имя уже существующей docker-сети, в которой сидит прокси (см. .env.example).
+services:
+  stand:
+    networks:
+      default:            # к серверу эмбеддингов — как раньше
+      proxy:              # к reverse proxy
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-caddy}
