@@ -197,6 +197,18 @@ class Knowledge(unittest.TestCase):
         self.assertNotIn('kb', {s['doc'] for s in other['sources']})       # чужому — только регламенты
         self.assertNotIn('[kb:%d]' % ticket, shown[-1])                    # чужая запись модели даже не показана
 
+    def test_knowledge_document_and_counter_belong_to_the_owner(self):
+        client, _, _ = stand(lambda m: ok('{"action": "not_found"}'))
+        ticket = client.post('/api/ask', json={'text': QUESTION}, headers=FIRST).json()['ticket']['id']
+        client.post('/api/tickets/%d/send' % ticket, headers=FIRST)
+        client.post('/api/tickets/%d/answer' % ticket, json={'answer': EXPERT}, headers=FIRST)
+
+        own = client.get('/api/document/kb', headers=FIRST).json()['blocks']
+        self.assertEqual([block['uid'] for block in own], ['kb:%d' % ticket])
+        self.assertEqual((client.get('/api/document/kb', headers=SECOND).json()['blocks'],
+                          client.get('/api/document/kb').json()['blocks']), ([], []))    # чужой и без адреса — пусто
+        self.assertEqual([client.get('/api/health', headers=h).json()['knowledge'] for h in (FIRST, SECOND)], [1, 0])
+
 
 class KnowledgeUnits(unittest.TestCase):
     """База знаний на уровне агента: чужая запись отбрасывается до отбора кандидатов и не занимает место."""

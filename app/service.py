@@ -230,14 +230,18 @@ class Service:
                                      'author': author, 'sources': [self.source(unit)]})
         return ticket
 
-    def document(self, doc_id):
-        """Регламент для окна документов: заголовки разделов и абзацы в порядке документа."""
+    def document(self, doc_id, owner=None):
+        """Регламент для окна документов: заголовки разделов и абзацы в порядке документа.
+
+        База знаний — не общий документ: с владельцем видны только ответы на его собственные запросы.
+        """
         info = self.engine.corpus.docs.get(doc_id)
         if not info:
             raise KeyError(doc_id)
+        allowed = self.knowledge_of(owner) if doc_id == KNOWLEDGE else None
         blocks = [{'uid': u.uid, 'kind': u.kind, 'number': u.number, 'label': u.label,
                    'text': u.title or u.text, 'address': u.address}
-                  for u in self.engine.corpus.units if u.doc == doc_id]
+                  for u in self.engine.corpus.units if u.doc == doc_id and (allowed is None or u.uid in allowed)]
         return {'doc': doc_id, 'title': info['title'], 'blocks': blocks}
 
     # ---- статистика ----

@@ -111,8 +111,10 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
     @app.get('/api/health')
     def health(request: Request):
         service = svc(request)
+        visible = service.knowledge_of(owner_of(request))          # база знаний — только свои записи
         return {'ok': True, 'regulations': len(service.engine.corpus.docs) - (KNOWLEDGE in service.engine.corpus.docs),
-                'knowledge': sum(1 for u in service.engine.corpus.units if u.doc == KNOWLEDGE),
+                'knowledge': sum(1 for u in service.engine.corpus.units
+                                 if u.doc == KNOWLEDGE and (visible is None or u.uid in visible)),
                 'model': service.catalog[0]['model'] if service.catalog else config.LLM_MODEL,   # по умолчанию — первая в каталоге
                 'model_served': service.store.served_model(),     # что реально ответило на последний запрос
                 'vectors': service.engine.search.vectors is not None, 'examples': EXAMPLES,
@@ -189,7 +191,7 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
     @app.get('/api/document/{doc_id}')
     def document(doc_id: str, request: Request):
         try:
-            return svc(request).document(doc_id)
+            return svc(request).document(doc_id, owner_of(request) if doc_id == KNOWLEDGE else None)   # база знаний — своя
         except KeyError:
             raise HTTPException(404, 'нет такого регламента')
 
