@@ -22,6 +22,8 @@ if (mode !== 'full') app.classList.remove('panel-closed');
 
 let sid = localStorage.getItem('regqa.sid') || null;
 let lastId = 0, busy = false, tab = 'qc', tickets = [], ticketMap = {}, sources = [];
+const shown = new Set();          // номера сообщений, которые уже на экране: опрос сессии их не повторяет
+let pendingUser = null;           // вопрос, показанный до ответа сервера, — ждёт своего номера
 
 /* ---- базовое ---- */
 
@@ -104,7 +106,12 @@ function ticketBlock(message) {
 }
 
 function show(entry) {
-  lastId = entry.id || lastId;
+  if (entry.id) {
+    if (shown.has(entry.id)) return;            // уже показан сразу после запроса
+    shown.add(entry.id);
+    lastId = Math.max(lastId, entry.id);
+    if (pendingUser && entry.role === 'user' && entry.text === pendingUser) { pendingUser = null; return; }
+  }
   const meta = typeof entry.meta === 'string' ? JSON.parse(entry.meta || '{}') : (entry.meta || {});
   if (entry.role === 'user') {
     const node = el('div', 'msg user');
@@ -172,6 +179,7 @@ async function send(text) {
   lastQuestion = text;
   thinking(true);
   show({ role: 'user', text });
+  pendingUser = text;
   input.value = '';
   try {
     const message = await api('/api/ask', { method: 'POST', body: JSON.stringify({ session_id: sid, text }) });
@@ -179,6 +187,7 @@ async function send(text) {
     localStorage.setItem('regqa.sid', sid);
     thinking(false);
     show({ role: 'agent', text: message.text, meta: message });
+    if (message.id) { shown.add(message.id); lastId = Math.max(lastId, message.id); }
   } catch (error) {
     thinking(false);
     show({ role: 'system', text: 'Не получилось: ' + error.message });
@@ -380,7 +389,7 @@ input.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(input.value); }
 });
 $('#new-dialog').addEventListener('click', async () => {
-  sid = null; lastId = 0; sources = [];
+  sid = null; lastId = 0; sources = []; shown.clear(); pendingUser = null;
   messagesEl.replaceChildren();
   welcome();
   const session = await api('/api/session', { method: 'POST' });

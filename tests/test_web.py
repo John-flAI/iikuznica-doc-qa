@@ -57,6 +57,10 @@ class Stand(unittest.TestCase):
         self.assertTrue(reply['ticket']['letter'])
         history = self.client.get('/api/session/' + reply['session_id']).json()['messages']
         self.assertEqual([m['role'] for m in history], ['user', 'agent'])
+        # клиент показывает ответ сразу и опрашивает сессию с его номера — повторов в чате не будет
+        self.assertEqual(reply['id'], history[-1]['id'])
+        self.assertEqual(self.client.get('/api/session/' + reply['session_id'],
+                                         params={'after': reply['id']}).json()['messages'], [])
 
     def test_empty_question_is_rejected(self):
         self.assertEqual(self.client.post('/api/ask', json={'text': '   '}).status_code, 400)
