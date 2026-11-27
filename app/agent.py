@@ -24,6 +24,8 @@ MAX_CLARIFICATIONS = 3    # после этого агент прямо гово
 KNOWLEDGE = 'kb'             # «документ» с ответами службы качества
 GIVE_UP_FLOOR = 0.60        # «нет ответа» при столь похожих фрагментах переспрашиваем у модели
 NUMBER = re.compile(r'\d+(?:[.,]\d+)?')
+MEASURE = re.compile(r'месяц|недел|дн|час|год|процент|руб|штук|раза')   # чем измеряют срок или норму
+ABBREV = re.compile(r'[А-ЯA-Z]{2,}')                                   # аббревиатура в названии регламента
 
 WRITER_SYSTEM = """Вы пишете ответ сотруднику по пунктам регламента.
 1. Используйте только сведения из приведённых фрагментов. Ничего не добавляйте от себя: ни сроков, ни правил, ни причин, ни пояснений.
@@ -46,6 +48,7 @@ SYSTEM = """Ты — внутренний агент компании. Сотр�
 
 action = "answer" — фрагменты дают прямой ответ, и он верен для этого сотрудника.
 action = "clarify" — фрагменты дают разные ответы в зависимости от условия, которого нет в вопросе: в разных регламентах разные сроки, ответственные или запреты; либо вопрос можно понять по-разному. Задай ОДИН короткий вопрос и предложи 2–4 варианта. Если различие — между регламентами, варианты должны быть названиями регламентов точно как в поле «Регламент» у фрагментов.
+Один и тот же ответ есть сразу в нескольких регламентах и не расходится (те же сроки, те же ответственные, тот же запрет) — отвечай сразу: action = "answer", "same": true, а в cites перечисли по одному пункту каждого из этих регламентов. Если сроки, ответственные или запреты различаются — "same": false и clarify.
 Фрагменты из базы знаний — это ответы службы качества. Они приоритетнее регламентов: если регламент говорит иначе, приведи ответ службы качества и укажи на расхождение.
 Не отвечай пунктом, который сам начинается с условия («если», «при», «в случае»), пока это условие не согласовано с сотрудником, — сначала уточни его.
 action = "not_found" — ни один фрагмент не отвечает на вопрос. Если фрагменты лишь упоминают тему, но не дают конкретного правила, срока, числа или порядка действий — это тоже not_found. Но если фрагменты о том, о чём спросили, и ответ зависит от условия — это не not_found, а clarify.
@@ -54,6 +57,7 @@ action = "not_found" — ни один фрагмент не отвечает н
 {"action": "answer" | "clarify" | "not_found",
  "cites": ["id фрагментов, которые дают ответ"],
  "why": "одно предложение: почему эти фрагменты отвечают на вопрос",
+ "same": true | false,
  "clarify": {"question": "…", "options": ["…", "…"]}}"""
 
 
@@ -87,7 +91,8 @@ class Agent:
     def ask(self, question, clarifications=()):
         """clarifications — [(вопрос агента, ответ сотрудника[, регламент])] из прошлых раундов."""
         history = [tuple(c) for c in clarifications]
-        scope = next((c[2] for c in reversed(history) if len(c) > 2 and c[2]), None)
+        named, question = self.split_regulation(question)
+        scope = next((c[2] for c in reversed(history) if len(c) > 2 and c[2]), None) or named
         # название выбранного регламента в запрос не добавляем: он уже выбран, а слова разбавят поиск
         query = ' '.join([question] + [c[1] for c in history if not (len(c) > 2 and c[2])])
         decision = Decision(route='not_found')
@@ -113,6 +118,40 @@ class Agent:
         elif choice.get('action') == 'clarify':
             self.decide_clarify(choice, decision, query, scope)
         return decision
+
+    def named_regulation(self, text):
+        """Регламент, который сотрудник назвал в самом вопросе (см. split_regulation)."""
+        return self.split_regulation(text)[0]
+
+    def split_regulation(self, text):
+        """(Регламент, названный в вопросе, вопрос без слов названия).
+
+        Узнаём полное название, аббревиатуру из него («ДБРЦТ») или три первых слова названия в любом падеже
+        («в организации проектной деятельности»). Одна аббревиатура в названиях нескольких регламентов («ИБ») —
+        не указывает ни на какой: агент уточнит. Слова названия уходят из поискового запроса: они уже выбрали
+        регламент, а внутри него только разбавляют поиск.
+        """
+        text = ' '.join(text.split())
+        lowered = text.lower().replace('ё', 'е')
+        tokens = set(re.findall(r'[a-zа-яе0-9-]+', lowered))
+        found, cut = set(), text
+        for doc, info in self.engine.corpus.docs.items():
+            title = ' '.join(info['title'].lower().replace('ё', 'е').split())
+            others = ' '.join(' '.join(i['title'].lower().replace('ё', 'е').split())
+                              for d, i in self.engine.corpus.docs.items() if d != doc)
+            head = [w[:6] if len(w) >= 6 else w for w in re.findall(r'[a-zа-яе0-9-]+', title)[:3]]
+            head_tokens = {w[:6] if len(w) >= 6 else w for w in tokens}
+            if title in lowered:
+                found.add(doc)
+                at = lowered.index(title)
+                cut = text[:at] + ' ' + text[at + len(title):]
+            elif any(abbr.lower() in tokens for abbr in ABBREV.findall(info['title'])):
+                found.add(doc)
+            elif all(h in head_tokens for h in head) and not all(h in others for h in head):
+                found.add(doc)
+        if len(found) != 1:
+            return None, text
+        return found.pop(), ' '.join(cut.split())
 
     @staticmethod
     def parse(text):
@@ -142,7 +181,7 @@ class Agent:
             decision.route = 'not_found'
             return
         regulations = list(dict.fromkeys(c[0].doc for c in passing))
-        if len(regulations) > 1 and not scope:
+        if len(regulations) > 1 and not scope and not (choice.get('same') is True and self.consistent(passing)):
             # регламенты отвечают по-разному, а сотрудник ещё не сказал, какой его
             decision.route = 'clarify'
             decision.question = 'Ответ зависит от регламента. В каком вы работаете?'
@@ -163,6 +202,17 @@ class Agent:
         decision.options = [o[:120] for o in options]
         # вариант, называющий регламент, запоминаем: он сузит следующий поиск
         decision.option_docs = {o[:120]: doc for o, doc in zip(options, self.regulation_of(options)) if doc}
+
+    @staticmethod
+    def consistent(cites):
+        """Пункты разных регламентов называют одни и те же сроки и нормы? Словам модели («same») не верим на слово:
+        каждый регламент — набор чисел и мер (дни, недели, проценты…); наборы двух регламентов разошлись — отвечать рано."""
+        facts = {}
+        for unit, _, _ in cites:
+            text = unit.text.lower().replace('ё', 'е')
+            found = {n.replace(',', '.') for n in NUMBER.findall(text)} | set(MEASURE.findall(text))
+            facts[unit.doc] = facts.get(unit.doc, set()) | found
+        return all(a == b for a in facts.values() for b in facts.values() if a and b)
 
     def regulation_of(self, options):
         """Какой регламент называет каждый вариант ответа."""

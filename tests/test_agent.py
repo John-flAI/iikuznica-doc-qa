@@ -56,10 +56,10 @@ class AgentLogic(unittest.TestCase):
     def agent(self, reply, **kwargs):
         return Agent(self.engine, FakeLLM(reply), **kwargs)
 
-    def flowing(self, decide, texts='Ответ по регламенту.', verdict=None):
+    def flowing(self, decide, texts='Ответ по регламенту.', verdict=None, **kwargs):
         llm = FakeLLM(ok('{}'))
         llm.chat = flow(decide, texts, verdict)
-        return Agent(self.engine, llm)
+        return Agent(self.engine, llm, **kwargs)
 
     def one_per_document(self, question):
         groups = self.engine.search.per_document(question, k_each=3)
@@ -90,6 +90,52 @@ class AgentLogic(unittest.TestCase):
         self.assertTrue(set(decision.option_docs.values()) <= set(uids))
         for option in decision.options:
             self.assertIn(option, decision.option_docs)
+
+    def test_same_answer_in_several_regulations_is_given_at_once(self):
+        """Регламенты говорят одно и то же, модель это подтвердила (same), код сверил сроки — уточнять нечего."""
+        question = 'Кто отвечает за закрытие проекта в учётных системах?'
+        units = [self.engine.corpus.get('f4:22.1'), self.engine.corpus.get('f5:33.1')]     # одинаковый абзац-дубль
+        agent = self.agent(ok('{}'))
+        found = agent.candidates(question)
+        self.assertTrue(all(u.uid in found for u in units), list(found))
+        decide = ok(json.dumps({'action': 'answer', 'cites': [u.uid for u in units], 'same': True}))
+        decision = self.flowing(decide).ask(question)
+        self.assertEqual(decision.route, 'answer')
+        self.assertEqual(len({c[0].doc for c in decision.cites}), 2)
+
+    def test_model_saying_same_does_not_outweigh_differing_terms(self):
+        """Модель написала same, а в пунктах месяц против недели — код всё равно уточняет."""
+        month, week = self.engine.corpus.get('f2:18.2~11'), self.engine.corpus.get('f5:23.4~6')
+        self.assertIn('месяц', month.text)
+        self.assertIn('неделю', week.text)
+        decide = ok(json.dumps({'action': 'answer', 'cites': [month.uid, week.uid], 'same': True}))
+        agent = self.agent(ok('{}'))
+        agent.candidates = lambda query, scope=None: {month.uid: (month, 1.0, 1.0), week.uid: (week, 1.0, 1.0)}
+        llm = FakeLLM(ok('{}'))
+        llm.chat = flow(decide)
+        agent.llm = llm
+        self.assertEqual(agent.ask('Как часто надо обновлять реестр рисков?').route, 'clarify')
+
+    def test_regulation_named_in_the_question_narrows_the_search(self):
+        """Сотрудник сам назвал регламент — переспрашивать, в каком он работает, не нужно."""
+        question = RISKS + ' Это по регламенту «Организация проектной деятельности».'
+        agent = self.agent(ok('{}'), min_similarity=0)
+        scope, rest = agent.split_regulation(question)
+        self.assertEqual(scope, 'f2')
+        self.assertNotIn('Организация проектной деятельности', rest)      # слова названия поиск не разбавляют
+        found = agent.candidates(rest, scope)
+        self.assertTrue(found)
+        decide = ok(json.dumps({'action': 'answer', 'cites': [next(iter(found))]}))
+        llm = FakeLLM(ok('{}'))
+        llm.chat = flow(decide)
+        agent.llm = llm
+        decision = agent.ask(question)
+        self.assertEqual(decision.route, 'answer')
+        self.assertTrue(all(c[0].doc == 'f2' for c in decision.cites))
+        self.assertEqual(agent.named_regulation('Как часто обновлять реестр рисков в организации проектной деятельности?'), 'f2')
+        self.assertIsNone(agent.named_regulation('Риски в ДБРЦТ и Дирекции ИБ'))      # «ИБ» — два регламента
+        self.assertIsNone(agent.named_regulation('Какова организация совещаний по проекту?'))   # слова те же, названия нет
+        self.assertEqual(agent.named_regulation('Кто назначает РП в ДБРЦТ?'), 'f4')
 
     def test_named_regulation_narrows_the_search(self):
         candidates = self.agent(ok('{}')).candidates(RISKS, scope='f2')
