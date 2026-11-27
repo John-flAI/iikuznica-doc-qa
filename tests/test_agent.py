@@ -242,6 +242,20 @@ class AgentLogic(unittest.TestCase):
         decision = self.flowing(answer('f3:5.1'), 'Согласуйте с юристами.', verdict).ask(DEADLINE)
         self.assertEqual((decision.text, decision.checks['judge'], decision.checks['attempts']), ('', 'failed', 2))
 
+    def test_citation_with_a_dropped_paragraph_suffix_still_answers(self):
+        """Модель сослалась на пункт без суффикса абзаца — берём ближайший абзац этого пункта, а не «нет ответа»."""
+        uid = self.one_per_document('Сколько заявок может быть у одного ПА?')['f3']
+        self.assertIn('~', uid)
+        decide = ok(json.dumps({'action': 'answer', 'cites': [uid.split('~')[0]]}))
+        decision = self.flowing(decide).ask('Сколько заявок может быть у одного ПА?')
+        self.assertEqual((decision.route, [c[0].uid for c in decision.cites]), ('answer', [uid]))
+
+    def test_clause_about_another_subject_is_not_an_answer(self):
+        """Судья видит, что пункт о другом предмете (приоритеты рисков при вопросе о приоритетах заявок)."""
+        verdict = ok('{"supported": false, "offtopic": true, "unsupported": []}')
+        decision = self.flowing(answer('f3:5.1'), 'Ответ не по адресу.', verdict).ask(DEADLINE)
+        self.assertEqual((decision.route, decision.cites, decision.text), ('not_found', [], ''))
+
     def test_foreign_facts_are_found_by_code(self):
         unit = self.engine.corpus.get('f3:5.1')                  # «…в течение 1 рабочего дня …»
         cites = [(unit, 1.0, 1.0)]

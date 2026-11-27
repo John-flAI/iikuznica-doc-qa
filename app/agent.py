@@ -35,8 +35,9 @@ WRITER_SYSTEM = """Вы пишете ответ сотруднику по пун
 5. Если среди фрагментов есть ответ службы качества, он приоритетнее регламента; если он расходится с регламентом, скажите об этом.
 Верните только JSON: {"text": "…"}"""
 
-JUDGE_SYSTEM = """Вы проверяете ответ агента на опору в регламенте. Даны фрагменты и текст ответа. Найдите в тексте утверждения, которых нет во фрагментах: добавленные факты, числа, сроки, правила, причины, рекомендации. Перефразирование фрагмента и обращение к сотруднику ошибкой не считаются.
-Верните только JSON: {"supported": true, "unsupported": []} или {"supported": false, "unsupported": ["цитата из текста ответа", …]}"""
+JUDGE_SYSTEM = """Вы проверяете ответ агента на опору в регламенте. Даны вопрос сотрудника, фрагменты и текст ответа. Найдите в тексте утверждения, которых нет во фрагментах: добавленные факты, числа, сроки, правила, причины, рекомендации. Перефразирование фрагмента и обращение к сотруднику ошибкой не считаются.
+Отдельно проверьте предмет: фрагменты отвечают именно на вопрос сотрудника? Если они говорят о другом объекте, хотя слова совпадают (спрашивают о приоритетах заявок, а фрагмент — о приоритетах рисков), ответ не по адресу.
+Верните только JSON: {"supported": true, "unsupported": []}; или {"supported": false, "unsupported": ["цитата из текста ответа", …]}; или, если фрагменты о другом предмете, {"supported": false, "offtopic": true, "unsupported": []}"""
 
 GIVE_UP_CHECK = ('Среди фрагментов есть близкие к вопросу. Если ответ зависит от условия, которого нет '
                  'в вопросе, — задай уточняющий вопрос (clarify). Если прямой ответ во фрагментах есть — '
@@ -175,9 +176,7 @@ class Agent:
         return max((self.relevance(c[1], c[2]) for c in candidates.values()), default=0.0)
 
     def decide_answer(self, choice, decision, candidates, scope, question, history):
-        wanted = choice.get('cites')
-        chosen = [candidates[c] for c in dict.fromkeys(wanted if isinstance(wanted, list) else [])
-                  if c in candidates]
+        chosen = self.resolve(choice.get('cites'), candidates)
         passing = [c for c in chosen if self.relevance(c[1], c[2]) >= self.floor(scope, self.min_similarity)]
         if not passing:
             decision.route = 'not_found'
@@ -192,6 +191,26 @@ class Agent:
             return
         decision.route, decision.cites = 'answer', passing
         decision.text, decision.checks = self.compose(question, history, passing, decision)
+        if decision.checks.get('judge') == 'offtopic':
+            decision.route, decision.cites, decision.text = 'not_found', [], ''
+
+    def resolve(self, wanted, candidates):
+        """Адреса из ответа модели → фрагменты-кандидаты, в том же порядке.
+
+        Модель иногда отбрасывает суффикс абзаца («f2:1.5~1» → «f2:1.5»): тогда берём самый близкий к вопросу
+        абзац этого пункта. Иначе готовый ответ превращался бы в «нет ответа» из-за описки в адресе.
+        """
+        chosen = []
+        for cite in dict.fromkeys(wanted if isinstance(wanted, list) else []):
+            if not isinstance(cite, str):
+                continue
+            if cite in candidates:
+                chosen.append(candidates[cite])
+                continue
+            children = [c for uid, c in candidates.items() if uid.startswith(cite + '~')]
+            if children:
+                chosen.append(max(children, key=lambda c: self.relevance(c[1], c[2])))
+        return chosen
 
     def decide_clarify(self, choice, decision, query, scope):
         clarify = choice.get('clarify') or {}
@@ -309,6 +328,9 @@ class Agent:
                 ruling = self.judge(question, history, cites, text, short, decision)
                 if ruling is None:
                     checks['judge'] = 'unavailable'
+                    return '', checks
+                if ruling.get('offtopic') is True:
+                    checks['judge'] = 'offtopic'        # пункт о другом предмете: показывать его ответом нельзя
                     return '', checks
                 if ruling.get('supported') is not False:
                     return text, checks
