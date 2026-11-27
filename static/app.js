@@ -172,12 +172,6 @@ function show(entry) {
   scrollDown();
 }
 
-function welcome() {
-  messagesEl.append(el('div', 'msg system',
-    'Задайте вопрос по регламентам — например, один из примеров под полем ввода. ' +
-    'Если ответа в регламентах нет, агент не станет его выдумывать и подготовит запрос в службу качества.'));
-}
-
 let lastQuestion = '';
 async function send(text) {
   text = (text || '').trim();
@@ -225,6 +219,7 @@ function showTab(name) {
 
 $('#rail').addEventListener('click', () => openPanel('qc'));
 $('#panel-close').addEventListener('click', () => app.classList.add('panel-closed'));
+$('#panel-collapse').addEventListener('click', () => app.classList.add('panel-closed'));   // узкая кнопка на границе чата и колонны
 app.querySelectorAll('.tab[data-tab]').forEach((node) => node.addEventListener('click', () => showTab(node.dataset.tab)));
 
 /* золотая линия: письмо уходит из чата к службе качества (панель открыта — в её заголовок,
@@ -406,14 +401,123 @@ $('#ask-form').addEventListener('submit', (event) => { event.preventDefault(); s
 input.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(input.value); }
 });
-$('#new-dialog').addEventListener('click', async () => {
-  sid = null; lastId = 0; sources = []; shown.clear(); pendingUser = null;
-  messagesEl.replaceChildren();
-  welcome();
-  const session = await newSession();
-  sid = session.id;
+/* ---- несколько чатов: вкладки в шапке, у каждого своя сессия (свой диалог и память) ---- */
+
+let chats = [];                   // [{ sid, name }] — список чатов, активный = совпадает с sid
+
+function loadChats() {
+  try { chats = JSON.parse(localStorage.getItem('regqa.chats') || '[]'); } catch (error) { chats = []; }
+  if (!Array.isArray(chats)) chats = [];
+  chats = chats.filter((c) => c && c.sid && c.name);
+}
+
+function saveChats() {
+  localStorage.setItem('regqa.chats', JSON.stringify(chats));
+}
+
+async function openChat(chat) {
+  closeChatMenu();
+  sid = chat.sid; lastId = 0; sources = []; shown.clear(); pendingUser = null;
   localStorage.setItem('regqa.sid', sid);
-});
+  messagesEl.replaceChildren();
+  try {
+    const history = await api('/api/session/' + sid);
+    history.messages.forEach((entry) => show(entry));
+  } catch (error) { /* история недоступна — начнём с пустого */ }
+  renderChats();
+  scrollDown();
+}
+
+async function createChat() {
+  if (busy) return;
+  const session = await newSession();
+  const chat = { sid: session.id, name: 'Чат ' + (chats.length + 1) };
+  chats.push(chat);
+  saveChats();
+  await openChat(chat);
+}
+
+async function closeChat(chat) {
+  chats = chats.filter((c) => c !== chat);
+  saveChats();
+  if (chat.sid !== sid) { renderChats(); return; }
+  if (chats.length) { await openChat(chats[chats.length - 1]); return; }
+  sid = null;
+  await createChat();             // закрыли последний — начнём свежий «Чат 1»
+}
+
+function renameChat(chat) {
+  renderChats(chat);
+}
+
+function renderChats(renaming) {
+  const box = $('#chat-tabs');
+  box.replaceChildren();
+  chats.forEach((chat) => {
+    if (renaming === chat) {
+      const chip = button('chat-chip active', '', () => {});
+      const field = el('input');
+      field.value = chat.name;
+      field.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') field.blur();
+        if (event.key === 'Escape') { field.value = chat.name; field.blur(); }
+      });
+      field.addEventListener('blur', () => {
+        chat.name = field.value.trim() || ('Чат ' + (chats.indexOf(chat) + 1));
+        saveChats();
+        renderChats();
+      });
+      chip.replaceChildren(field);
+      box.append(chip);
+      field.focus();
+    } else {
+      const chip = button('chat-chip' + (chat.sid === sid ? ' active' : ''), '', () => {
+        if (!busy && chat.sid !== sid) openChat(chat);
+      });
+      chip.textContent = chat.name;
+      chip.addEventListener('contextmenu', (event) => openChatMenu(event, chat));
+      box.append(chip);
+    }
+  });
+  const add = button('ghost', '+ Новый чат', () => { if (!busy) createChat(); });
+  add.type = 'button';
+  box.append(add);
+}
+
+function openChatMenu(event, chat) {
+  event.preventDefault();
+  closeChatMenu();
+  const menu = el('div', 'context-menu');
+  menu.append(button('', 'Переименовать', () => { closeChatMenu(); renameChat(chat); }),
+              button('danger', 'Закрыть чат', () => { closeChatMenu(); closeChat(chat); }));
+  menu.style.left = Math.min(event.clientX, window.innerWidth - 190) + 'px';
+  menu.style.top = Math.min(event.clientY, window.innerHeight - 110) + 'px';
+  document.body.append(menu);
+  setTimeout(() => {
+    document.addEventListener('click', closeChatMenu, { once: true });
+    document.addEventListener('keydown', closeChatMenu, { once: true });
+    document.addEventListener('contextmenu', (e) => { if (!e.defaultPrevented) closeChatMenu(); }, { once: true });
+  }, 0);
+}
+
+function closeChatMenu() {
+  const menu = document.querySelector('.context-menu');
+  if (menu) menu.remove();
+}
+
+/* ---- темы оформления: Сталь и Графит (html[data-theme]), выбор в localStorage ---- */
+
+const THEME_LIST = ['steel', 'graphite'];
+
+function applyTheme(name) {
+  if (!THEME_LIST.includes(name)) name = 'steel';   // сохранённое имя устарело — берём Сталь
+  document.documentElement.dataset.theme = name;
+  localStorage.setItem('regqa.theme', name);
+  document.querySelectorAll('.theme-tabs .theme-chip').forEach((b) => b.classList.toggle('active', b.dataset.theme === name));
+}
+
+document.querySelectorAll('.theme-tabs .theme-chip').forEach((b) => b.addEventListener('click', () => applyTheme(b.dataset.theme)));
+applyTheme(localStorage.getItem('regqa.theme') || 'steel');
 
 /* ---- модели на выбор: переключатель в шапке, выбор хранится в сессии ---- */
 
@@ -441,32 +545,35 @@ function setupModels(health) {
 (async function init() {
   try {
     const health = await api('/api/health');
-    const examples = $('#examples');
-    health.examples.forEach((question) => examples.append(button('', question, () => send(question))));
+    const examples = $('#examples'), drop = $('#examples-drop');
+    if (health.examples && health.examples.length) {
+      drop.hidden = false;
+      health.examples.forEach((question) => examples.append(button('', question, () => {
+        drop.open = false;           // выбрали тестовый вопрос — список закрывается, вопрос уходит в чат
+        send(question);
+      })));
+    }
     if (health.ask_limit > 0) $('#limit-note').textContent =
-      'Демонстрационный стенд: до ' + health.ask_limit + ' вопросов в час с одного адреса — так мы бережём бюджет модели.';
+      'Демонстрационный стенд ответов по регламенту: до ' + health.ask_limit + ' вопросов в час с одного IP.';
     if (health.models && health.models.length > 1) setupModels(health);
   } catch (error) { /* примеры не обязательны */ }
   try {
     ticketMap = Object.fromEntries((await api('/api/tickets')).map((ticket) => [ticket.id, ticket]));
   } catch (error) { ticketMap = {}; }
-  if (sid) {
-    try {
-      const history = await api('/api/session/' + sid);
-      history.messages.forEach((entry) => show(entry));
-    } catch (error) { sid = null; }
-  }
-  if (!sid) {
-    try {
-      const session = await newSession();
-      sid = session.id;
-      localStorage.setItem('regqa.sid', sid);
-    } catch (error) {
-      messagesEl.append(el('div', 'msg system', 'Сервер не отвечает. Обновите страницу позже.'));
-      return;
+  loadChats();
+  if (!chats.length) {
+    // первый запуск (или чистый localStorage): один диалог «Чат 1»; старый sid мигрирует в него
+    if (sid) chats = [{ sid, name: 'Чат 1' }];
+    else {
+      try { chats = [{ sid: (await newSession()).id, name: 'Чат 1' }]; }
+      catch (error) {
+        messagesEl.append(el('div', 'msg system', 'Сервер не отвечает. Обновите страницу позже.'));
+        return;
+      }
     }
+    saveChats();
   }
-  if (!messagesEl.children.length) welcome();
+  await openChat(chats.find((c) => c.sid === sid) || chats[0]);
   if (mode === 'qc') { showTab('qc'); }
   if (mode === 'analytics') { showTab('stats'); }
   setInterval(tick, 2500);

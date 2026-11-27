@@ -4,20 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Агент ответов по регламентам</title>
+<title>ДокИИ</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="app panel-closed" id="app">
   <main class="chat">
     <header class="chat-head">
-      <div>
-        <h1>Ответы по регламентам</h1>
-        <p class="sub">Агент отвечает текстом регламента и показывает источник. Нет ответа — не выдумывает, а готовит запрос в службу качества.</p>
-        <p class="limit-note" id="limit-note">Демонстрационный стенд: до 20 вопросов в час с одного адреса — так мы бережём бюджет модели.</p>
-        <p class="model-note" hidden id="model-note"><label for="model-switch">Модель:</label> <select id="model-switch" aria-label="Модель, которая отвечает на вопросы"></select></p>
+      <div class="head-row">
+        <div class="head-note">
+          <h1>ДокИИ</h1>
+          <p class="limit-note" id="limit-note">Демонстрационный стенд ответов по регламенту: до 60 вопросов в час с одного IP.</p>
+          <p class="model-note" hidden id="model-note"><label for="model-switch">Модель:</label> <select id="model-switch" aria-label="Модель, которая отвечает на вопросы"></select></p>
+        </div>
+        <details class="examples-drop" id="examples-drop" hidden>
+          <summary>Тестовые вопросы</summary>
+          <div class="examples" id="examples"></div>
+        </details>
       </div>
-      <button class="ghost" id="new-dialog" type="button">Новый диалог</button>
+      <div class="chat-tabs" id="chat-tabs"></div>
+      <div class="theme-tabs" id="theme-tabs" title="Тема оформления">
+        <span class="theme-label">Тема:</span>
+        <button class="theme-chip active" data-theme="steel" type="button">Сталь</button>
+        <button class="theme-chip" data-theme="graphite" type="button">Графит</button>
+      </div>
     </header>
     <section class="messages" id="messages" aria-live="polite"></section>
     <div class="thinking" id="thinking" hidden>
@@ -25,9 +35,8 @@
       <div class="steps" id="thinking-steps"></div>
     </div>
     <footer class="composer">
-      <div class="examples" id="examples"></div>
       <form class="ask" id="ask-form">
-        <textarea id="ask-input" rows="2" placeholder="Задайте вопрос по регламентам…"></textarea>
+        <textarea id="ask-input" rows="1" placeholder="Задайте вопрос по регламентам…"></textarea>
         <button class="primary" id="ask-send" type="submit">Спросить</button>
       </form>
     </footer>
@@ -37,6 +46,7 @@
     <span class="rail-label">Служба качества · Документы · Статистика</span>
   </button>
   <aside class="panel" id="panel">
+    <button class="panel-collapse" id="panel-collapse" type="button" title="Свернуть колонну">▸</button>
     <nav class="tabs">
       <button class="tab active" type="button" data-tab="qc">Служба качества</button>
       <button class="tab" type="button" data-tab="docs">Документы</button>
