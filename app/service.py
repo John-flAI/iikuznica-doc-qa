@@ -35,6 +35,8 @@ NOTICES = {
                    'дословно — проверьте их самостоятельно или повторите вопрос через минуту.',
     'verbatim': 'Связный текст не прошёл проверку на опору в регламенте, поэтому привожу пункты дословно.',
 }
+NO_KEY = ('Стенд не получил доступа к модели: ключ не задан или не принят. Показываю найденные пункты '
+          'без обработки модели — проверьте их самостоятельно.')
 
 
 def letter(ticket):
@@ -187,7 +189,9 @@ class Service:
             self.store.touch_question(question['id'], route=None, awaiting=decision.question,
                                       options=message['clarify']['options'], **common)
         elif route == 'degraded':
-            message.update(text=NOTICES[route], notice=decision.error, retry=True,
+            # 401/403 — не перегрузка: повтор через минуту не поможет, это ключ доступа к модели
+            no_key = str(decision.error or '').startswith(('HTTP 401', 'HTTP 403'))
+            message.update(text=NO_KEY if no_key else NOTICES[route], notice=decision.error, retry=not no_key,
                            sources=[self.source(c[0]) for c in decision.cites])
             self.store.touch_question(question['id'], route=route, awaiting=None, **common)
         else:

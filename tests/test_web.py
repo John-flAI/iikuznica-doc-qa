@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """Веб-стенд через HTTP: страницы, чат, служба качества, документы, статистика — на поддельной модели."""
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
+from app import config
 from app.engine import load_engine
 from app.service import Service
 from app.store import Store
@@ -211,6 +214,16 @@ class NoStaleClient(unittest.TestCase):
         script = client.get('/static/app.js')
         same = client.get('/static/app.js', headers={'if-none-match': script.headers['etag']})
         self.assertEqual((same.status_code, same.headers.get('cache-control')), (304, 'no-cache'))
+
+
+class CatalogWithoutKeys(unittest.TestCase):
+    """Без ключа запись каталога на стенд не попадает: иначе стенд звал бы облако без ключа и получал 401
+    вместо запасного клиента (локальный сервер без ключей)."""
+
+    def test_records_without_keys_are_not_listed(self):
+        records = 'a|A|server-a|mA|IIKUZNICA_TEST_KEY_NONE;b|B|server-b|mB|IIKUZNICA_TEST_KEY_NONE'
+        with mock.patch.object(config, 'LLM_MODELS', records), mock.patch.dict(os.environ, {}, clear=False):
+            self.assertEqual(config.models(), [])
 
 
 class ModelSwitch(unittest.TestCase):

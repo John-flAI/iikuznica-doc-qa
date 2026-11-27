@@ -136,6 +136,13 @@ class ServiceFlow(unittest.TestCase):
         self.assertEqual((message['route'], message['retry'], message['notice']), ('degraded', True, 'HTTP 429'))
         self.assertIsNone(self.store.open_question(self._last_session()))
 
+    def test_rejected_key_is_not_called_a_temporary_outage(self):
+        from app.llm import Reply
+        service = self.service(decide=lambda m: Reply(error='HTTP 401'))
+        message = service.ask(None, 'Как часто надо обновлять реестр рисков?')
+        self.assertEqual((message['route'], message['retry'], message['notice']), ('degraded', False, 'HTTP 401'))
+        self.assertIn('ключ не задан или не принят', message['text'])    # без совета «повторите через минуту»
+
     def test_weekly_report_says_so_when_there_is_nothing_to_propose(self):
         service = self.service(decide=lambda m: ok('{"action": "not_found"}'))
         self.assertEqual(service.weekly()['text'], 'Предложений нет.')

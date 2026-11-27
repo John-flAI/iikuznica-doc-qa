@@ -45,4 +45,4 @@ def models():
         items = [{'id': 'default', 'label': LLM_MODEL, 'base_url': LLM_BASE_URL, 'model': LLM_MODEL, 'key_env': 'LLM_API_KEY'}]
     for item in items:
         item['key'] = os.environ.get(item['key_env']) or None
-    return [item for item in items if item['key']] or items[:1]
+    return [item for item in items if item['key']]      # без ключа запись не показывается: иначе звали бы облако без ключа (401)
