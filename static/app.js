@@ -285,6 +285,7 @@ function selectTicket(id) {
         await api('/api/tickets/' + ticket.id + '/answer', { method: 'POST', body: JSON.stringify({ answer: answer.value, author: author.value }) });
         form.replaceWith(el('div', 'qc-done', 'Ответ отправлен сотруднику и добавлен в базу знаний: теперь агент ответит на этот вопрос сам.'));
         await loadTickets();
+        await tick();                     // ответ службы сразу появляется в чате — без ожидания опроса сессии
       } catch (error) {
         form.append(el('div', 'notice', 'Не получилось: ' + error.message));
         event.target.disabled = false;
