@@ -180,10 +180,16 @@ class Search:
                     hits[uid] = Hit(self.by_uid[uid], weight, 0.0, similarity)
         return sorted(hits.values(), key=lambda h: -h.score)[:k]
 
-    def per_document(self, query, k_each=2):
-        """Лучшие атомы каждого регламента — так видны разные ответы дирекций на один вопрос."""
+    def per_document(self, query, k_each=2, skip=None):
+        """Лучшие атомы каждого регламента — так видны разные ответы дирекций на один вопрос.
+
+        skip — какие находки выбросить до обрезки по k_each (например, чужие записи базы знаний):
+        иначе выброшенная занимала бы место нужной в лимите на документ.
+        """
         groups = {}
         for hit in self.search(query, k=self.pool * 2):
+            if skip is not None and skip(hit):
+                continue
             if len(groups.setdefault(hit.unit.doc, [])) < k_each:
                 groups[hit.unit.doc].append(hit)
         return groups

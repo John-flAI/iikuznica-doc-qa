@@ -14,7 +14,8 @@ UNSET = object()          # «поле не передано» — отлича�
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY, created TEXT, mode TEXT, email TEXT DEFAULT '', model TEXT DEFAULT '');
+    id TEXT PRIMARY KEY, created TEXT, mode TEXT, email TEXT DEFAULT '', model TEXT DEFAULT '',
+    owner TEXT DEFAULT '');               -- владелец сессии: адрес сотрудника (изоляция по адресу)
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, ts TEXT, role TEXT, text TEXT, meta TEXT);
 CREATE TABLE IF NOT EXISTS questions (
@@ -43,8 +44,11 @@ class Store:
         self.local = threading.local()
         with self.connect() as conn:
             conn.executescript(SCHEMA)
-            if 'model' not in {row[1] for row in conn.execute('PRAGMA table_info(sessions)')}:
+            columns = {row[1] for row in conn.execute('PRAGMA table_info(sessions)')}
+            if 'model' not in columns:
                 conn.execute("ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT ''")   # база переживает обновление
+            if 'owner' not in columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN owner TEXT DEFAULT ''")   # старые сессии — без владельца
 
     def connect(self):
         conn = getattr(self.local, 'conn', None)
@@ -68,14 +72,43 @@ class Store:
 
     # ---- сессии и диалог ----
 
-    def session(self, session_id=None, mode='full', email='', model=None):
+    def session(self, session_id=None, mode='full', email='', model=None, owner=None):
+        """Сессия владельца: чужой идентификатор не даёт доступа — создаётся своя сессия с пустой историей.
+
+        Сессии нет → создаётся с этим владельцем; владелец совпал → возвращается;
+        владелец у записи пустой (старая база) → присваивается первому обратившемуся;
+        владелец другой → новая сессия с теми же mode/model/email, но со своей историей.
+        owner=None — владелец не важен (прямая работа с хранилищем): как раньше.
+        """
         found = self._one('SELECT * FROM sessions WHERE id=?', session_id) if session_id else None
+        if found and owner is not None:
+            if not found['owner']:                     # старая запись — первому обратившемуся
+                self._run('UPDATE sessions SET owner=? WHERE id=?', owner, session_id)
+                return self._one('SELECT * FROM sessions WHERE id=?', session_id)
+            if found['owner'] == owner:
+                return found
+            session_id, mode, email, model = uuid.uuid4().hex[:12], found['mode'], found['email'], found['model']
+            found = None                               # чужая сессия — своя такая же, история чистая
         if found:
             return found
         session_id = session_id or uuid.uuid4().hex[:12]
-        self._run('INSERT INTO sessions(id, created, mode, email, model) VALUES(?,?,?,?,?)',
-                  session_id, now(), mode, email, model or '')
+        self._run('INSERT INTO sessions(id, created, mode, email, model, owner) VALUES(?,?,?,?,?,?)',
+                  session_id, now(), mode, email, model or '', owner or '')
         return self._one('SELECT * FROM sessions WHERE id=?', session_id)
+
+    def session_for(self, session_id, owner):
+        """Сессия этого владельца для чтения или None: нет такой — None, чужая — тоже None.
+
+        Старую запись без владельца присваиваем первому обратившемуся — после этого она только его.
+        В отличие от session() ничего не создаёт: несуществующий идентификатор остаётся несуществующим.
+        """
+        found = self._one('SELECT * FROM sessions WHERE id=?', session_id)
+        if not found or (found['owner'] and found['owner'] != owner):
+            return None
+        if not found['owner']:
+            self._run('UPDATE sessions SET owner=? WHERE id=?', owner, session_id)
+            found['owner'] = owner
+        return found
 
     def set_model(self, session_id, model):
         self._run('UPDATE sessions SET model=? WHERE id=?', model or '', session_id)
@@ -156,13 +189,24 @@ class Store:
         return self._run('INSERT INTO tickets(ts, session_id, question_id, question, context, email) '
                          'VALUES(?,?,?,?,?,?)', now(), session_id, question_id, question, context, email)
 
-    def ticket(self, ticket_id):
-        return self._one('SELECT * FROM tickets WHERE id=?', ticket_id)
+    def ticket(self, ticket_id, owner=None):
+        """Запрос по номеру; с владельцем — только свой: чужой и несуществующий одинаково «не найден»."""
+        row = self._one('SELECT * FROM tickets WHERE id=?', ticket_id)
+        if row is None or owner is None:
+            return row
+        session = self._one('SELECT owner FROM sessions WHERE id=?', row['session_id'])
+        return row if session and session['owner'] == owner else None
 
-    def tickets(self, status=None):
+    def tickets(self, status=None, owner=None):
+        """Запросы службы качества; с владельцем — только те, что пришли из его сессий."""
+        if owner is None:                          # без владельца — все (база знаний при запуске, тесты)
+            if status:
+                return self._all('SELECT * FROM tickets WHERE status=? ORDER BY id DESC', status)
+            return self._all('SELECT * FROM tickets ORDER BY id DESC')
+        scope = 'session_id IN (SELECT id FROM sessions WHERE owner=?)'
         if status:
-            return self._all('SELECT * FROM tickets WHERE status=? ORDER BY id DESC', status)
-        return self._all('SELECT * FROM tickets ORDER BY id DESC')
+            return self._all('SELECT * FROM tickets WHERE %s AND status=? ORDER BY id DESC' % scope, owner, status)
+        return self._all('SELECT * FROM tickets WHERE %s ORDER BY id DESC' % scope, owner)
 
     def send_ticket(self, ticket_id):
         self._run("UPDATE tickets SET status='open' WHERE id=? AND status='draft'", ticket_id)
@@ -175,14 +219,22 @@ class Store:
 
     # ---- статистика ----
 
-    def analytics(self, days=None):
+    def analytics(self, days=None, owner=None):
         """Маршруты, токены и вопросы без ответа — за всё время или за последние days дней.
 
         «Общение не по регламентам» (smalltalk) считается отдельно: это не рабочий вопрос, и он не должен
         ни занижать среднюю стоимость вопроса, ни попадать в предложения «что внести в документацию».
+        owner — чьи вопросы считать (None — все): у каждого адреса своя картина, чужие вопросы не видны.
         """
+        scope, base = '', []
+        if owner is not None:                        # свои вопросы: сессии этого владельца
+            scope, base = ' AND session_id IN (SELECT id FROM sessions WHERE owner=?)', [owner]
         live = 'route IS NOT NULL AND route != \'smalltalk\''
-        where, args = ('WHERE %s AND ts>=?' % live, [since(days)]) if days else ('WHERE %s' % live, [])
+        where, args = ('WHERE %s%s AND ts>=?' % (live, scope), base + [since(days)]) if days \
+            else ('WHERE %s%s' % (live, scope), base)
+        # на что служба уже ответила этому владельцу — не предложение; чужие ответы он не видит
+        answered = "AND id NOT IN (SELECT question_id FROM tickets WHERE status='answered'%s)" % (
+            ' AND session_id IN (SELECT id FROM sessions WHERE owner=?)' if owner is not None else '')
         conn = self.connect()
         routes = {row['route']: row['n'] for row in conn.execute(
             'SELECT route, COUNT(*) n FROM questions %s GROUP BY route' % where, args)}
@@ -190,15 +242,14 @@ class Store:
                               'COUNT(*) n, COALESCE(AVG(tokens_in+tokens_out),0) avg, '
                               'COALESCE(AVG(seconds),0) sec FROM questions %s' % where, args).fetchone()
         smalltalk = conn.execute("SELECT COUNT(*) n FROM questions WHERE route='smalltalk'%s"
-                                 % (' AND ts>=?' if days else ''), args).fetchone()['n']
+                                 % (scope + ' AND ts>=?' if days else scope), args).fetchone()['n']
         unanswered = [dict(row) for row in conn.execute(
-            "SELECT question, COUNT(*) n FROM questions %s AND route IN ('not_found','unresolved') "
-            "AND id NOT IN (SELECT question_id FROM tickets WHERE status='answered') "
-            'GROUP BY question ORDER BY n DESC, MAX(id) DESC' % where, args)]      # на что служба уже ответила — не предложение
+            "SELECT question, COUNT(*) n FROM questions %s AND route IN ('not_found','unresolved') %s "
+            'GROUP BY question ORDER BY n DESC, MAX(id) DESC' % (where, answered), args + ([owner] if owner is not None else []))]
         return {'questions': sum(routes.values()), 'routes': routes, 'smalltalk': smalltalk,
                 'tokens_in': tokens['a'], 'tokens_out': tokens['b'],
                 'avg_tokens': round(tokens['avg']), 'avg_seconds': round(tokens['sec'], 1),
-                'tickets': {s: len(self.tickets(s)) for s in ('draft', 'open', 'answered')},
+                'tickets': {s: len(self.tickets(s, owner=owner)) for s in ('draft', 'open', 'answered')},
                 'unanswered': unanswered}
 
 

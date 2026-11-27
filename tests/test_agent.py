@@ -87,7 +87,7 @@ class AgentLogic(unittest.TestCase):
         (Похожий по словам пункт о план-графике сюда больше не попадает: проверка предмета его отбрасывает.)"""
         first, second = self.engine.corpus.get('f2:18.2~11'), self.engine.corpus.get('f4:15.3~3')
         agent = self.agent(answer(first.uid, second.uid))
-        agent.candidates = lambda query, scope=None: {u.uid: (u, 1.0, 1.0) for u in (first, second)}
+        agent.candidates = lambda query, scope=None, kb=None: {u.uid: (u, 1.0, 1.0) for u in (first, second)}
         decision = agent.ask(RISKS)
         self.assertEqual((decision.route, decision.offsubject), ('clarify', []))
         self.assertEqual(sorted(decision.option_docs.values()), ['f2', 'f4'])
@@ -113,7 +113,7 @@ class AgentLogic(unittest.TestCase):
         self.assertIn('неделю', week.text)
         decide = ok(json.dumps({'action': 'answer', 'cites': [month.uid, week.uid], 'same': True}))
         agent = self.agent(ok('{}'))
-        agent.candidates = lambda query, scope=None: {month.uid: (month, 1.0, 1.0), week.uid: (week, 1.0, 1.0)}
+        agent.candidates = lambda query, scope=None, kb=None: {month.uid: (month, 1.0, 1.0), week.uid: (week, 1.0, 1.0)}
         llm = FakeLLM(ok('{}'))
         llm.chat = flow(decide)
         agent.llm = llm
@@ -149,7 +149,7 @@ class AgentLogic(unittest.TestCase):
         weak = SimpleNamespace(uid=unit.uid, similarity=0.2, coverage=0.2, unit=unit)
         search = agent.engine.search
         agent.engine.search = SimpleNamespace(
-            per_document=lambda query, k_each=3: {'f2': [weak]}, vectors=search.vectors)
+            per_document=lambda query, k_each=3, skip=None: {'f2': [weak]}, vectors=search.vectors)
         try:
             self.assertEqual(agent.candidates('любой вопрос'), {})                            # без названия — отсекается
             self.assertEqual(list(agent.candidates('любой вопрос', scope='f2')), [unit.uid])   # с названием — показываем
@@ -267,7 +267,7 @@ class AgentLogic(unittest.TestCase):
     def test_giving_up_on_distant_fragments_is_final(self):
         agent = self.agent(ok('{"action": "not_found"}'))
         unit = self.engine.corpus.get('f3:5.1')
-        agent.candidates = lambda query, scope=None: {unit.uid: (unit, 0.5, 0.5)}   # похоже, но не сильно
+        agent.candidates = lambda query, scope=None, kb=None: {unit.uid: (unit, 0.5, 0.5)}   # похоже, но не сильно
         self.assertEqual((agent.ask(RISKS).route, agent.llm.calls), ('not_found', 1))
 
     # ---- текст ответа и его проверка ----
@@ -347,7 +347,7 @@ class AgentLogic(unittest.TestCase):
 
         def agent():
             agent = self.agent(answer(unit.uid))
-            agent.candidates = lambda query, scope=None: {unit.uid: (unit, 1.0, 1.0)}
+            agent.candidates = lambda query, scope=None, kb=None: {unit.uid: (unit, 1.0, 1.0)}
             return agent
         decision = agent().ask('По каким критериям заявке присваивается приоритет 2?')
         self.assertEqual((decision.route, decision.text, [d[0] for d in decision.offsubject]), ('not_found', '', [unit.uid]))
@@ -365,6 +365,6 @@ class AgentLogic(unittest.TestCase):
         """В вопросе нет предметных слов — проверка не мешает отвечать."""
         unit = self.engine.corpus.get('f3:5.2.3~3')
         agent = self.agent(answer(unit.uid))
-        agent.candidates = lambda query, scope=None: {unit.uid: (unit, 1.0, 1.0)}
+        agent.candidates = lambda query, scope=None, kb=None: {unit.uid: (unit, 1.0, 1.0)}
         decision = agent.ask('Сколько это делается?')
         self.assertEqual((decision.route, decision.offsubject, decision.checks['offsubject']), ('answer', [], []))

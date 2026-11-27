@@ -176,8 +176,12 @@ class Agent:
         # сверка предмета выключается только для замера «A/B» (REGQA_SUBJECT_CHECK=0)
         self.check_subject = os.environ.get('REGQA_SUBJECT_CHECK', '1') != '0'
 
-    def ask(self, question, clarifications=()):
-        """clarifications — [(вопрос агента, ответ сотрудника[, регламент])] из прошлых раундов."""
+    def ask(self, question, clarifications=(), kb=None):
+        """clarifications — [(вопрос агента, ответ сотрудника[, регламент])] из прошлых раундов.
+
+        kb — какие записи базы знаний разрешены (множество uid'ов «kb:<номер запроса>»); None — все.
+        Чужие ответы службы качества отсеиваются до отбора кандидатов: модель их даже не видит.
+        """
         history = [tuple(c) for c in clarifications]
         named, question = self.split_regulation(question)
         scope = next((c[2] for c in reversed(history) if len(c) > 2 and c[2]), None) or named
@@ -185,9 +189,9 @@ class Agent:
         query = ' '.join([question] + [c[1] for c in history if not (len(c) > 2 and c[2])])
         decision = Decision(route='not_found')
         if len(history) >= self.max_clarifications:
-            decision.route, decision.cites = 'unresolved', self.best_of_each(query, scope)
+            decision.route, decision.cites = 'unresolved', self.best_of_each(query, scope, kb)
             return decision
-        candidates = self.candidates(query, scope)
+        candidates = self.candidates(query, scope, kb)
         if not candidates:
             self.no_fragments(question, history, decision)
             return decision
@@ -197,7 +201,7 @@ class Agent:
         decision.turns = 1
         if not reply.ok:
             # модель недоступна — не выдаём тишину: отдаём найденное без обработки модели
-            decision.route, decision.cites, decision.error = 'degraded', self.best_of_each(query, scope), reply.error
+            decision.route, decision.cites, decision.error = 'degraded', self.best_of_each(query, scope, kb), reply.error
             return decision
         choice = self.parse(reply.text)
         if choice.get('action') == 'not_found' and self.strongest(candidates) >= GIVE_UP_FLOOR:
@@ -388,9 +392,10 @@ class Agent:
         а внутри одного регламента словесного покрытия меньше (его фрагменты похожи друг на друга)."""
         return base if scope is None else base * 0.6
 
-    def candidates(self, query, scope=None):
+    def candidates(self, query, scope=None, kb=None):
         """Лучшие фрагменты каждого регламента, достаточно близкие к вопросу: {uid: (unit, sim, cov)}."""
-        groups = self.engine.search.per_document(query, k_each=PER_DOCUMENT if scope is None else PER_DOCUMENT + 2)
+        groups = self.engine.search.per_document(query, k_each=PER_DOCUMENT if scope is None else PER_DOCUMENT + 2,
+                                                 skip=self.foreign_kb(kb))
         found = {}
         for doc, hits in groups.items():
             if scope is not None and doc != scope:       # сотрудник назвал регламент — ищем только в нём
@@ -404,12 +409,18 @@ class Agent:
                 found[hit.uid] = (hit.unit, hit.similarity, hit.coverage)
         return found
 
-    def best_of_each(self, query, scope=None):
+    def best_of_each(self, query, scope=None, kb=None):
         """По одному лучшему фрагменту каждого регламента — что показать при «неоднозначно»."""
-        groups = self.engine.search.per_document(query, k_each=1)
+        groups = self.engine.search.per_document(query, k_each=1, skip=self.foreign_kb(kb))
         return [(hit.unit, hit.similarity, hit.coverage)
                 for doc, hits in groups.items() for hit in hits
                 if (scope is None or doc == scope) and self.relevance(hit.similarity, hit.coverage) >= self.min_similarity]
+
+    def foreign_kb(self, kb):
+        """Чужие записи базы знаний в поиск не попадают: kb — множество разрешённых uid'ов, None — все."""
+        if kb is None:
+            return None
+        return lambda hit: hit.unit.doc == KNOWLEDGE and hit.uid not in kb
 
     def relevance(self, similarity, coverage):
         """Насколько фрагмент относится к вопросу.
