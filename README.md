@@ -57,7 +57,7 @@ ollama pull bge-m3 && ollama pull glm-4.7-flash      # локальные мод
 python -m app.engine                                  # построить векторный индекс (около минуты)
 cp .env.example .env                                 # заполнить ключ, если нужна облачная модель
 python -m uvicorn app.web:app --port 8080             # стенд: / полный, /user чат, /qc служба качества
-python -m unittest discover -s tests                 # 78 тестов
+python -m unittest discover -s tests                 # 79 тестов
 ```
 
 В Docker — стенд и отдельный сервер эмбеддингов (BGE-M3 на CPU, около 2 ГБ памяти):
