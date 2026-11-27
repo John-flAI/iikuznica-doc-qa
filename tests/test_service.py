@@ -91,11 +91,11 @@ class ServiceFlow(unittest.TestCase):
         self.assertEqual(self.store.ticket(ticket_id)['status'], 'answered')
         self.assertEqual(self.store.analytics()['unanswered'], [])      # на вопрос уже ответили — не «что внести в документацию»
         address = kb_unit(self.store.ticket(ticket_id)).address.casefold()
-        self.assertEqual((address.count('служба качества'), address.count('иван')), (1, 1))
+        self.assertEqual((address.count('службы качества'), address.count('иван')), (1, 1))
 
         service.ask(None, OFF_TOPIC)                                     # автор по умолчанию — не двоится в адресе
         service.answer(self.store.tickets('draft')[0]['id'], EXPERT_ANSWER, 'Служба качества')
-        self.assertEqual(kb_unit(self.store.tickets('answered')[0]).address.casefold().count('служба качества'), 1)
+        self.assertEqual(kb_unit(self.store.tickets('answered')[0]).address.casefold().count('службы качества'), 1)
 
         session_id = self._last_session()
         delivered = self.store.messages(session_id)[-1]
