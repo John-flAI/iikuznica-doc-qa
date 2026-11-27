@@ -8,7 +8,7 @@ const panel = $('#panel'), docEl = $('#doc'), docPick = $('#doc-pick');
 const ROUTE_NAMES = {
   answer: 'ответ по регламенту', clarify: 'уточняющий вопрос', not_found: 'нет ответа в регламентах',
   unresolved: 'однозначного ответа нет', degraded: 'модель недоступна', qc: 'ответ службы качества',
-  kb: 'ответ из базы знаний — ответ службы качества',
+  kb: 'ответ из базы знаний — ответ службы качества', smalltalk: 'общение не по регламентам',
 };
 const CHECK_NAMES = {
   passed: 'проверка на опору в регламенте пройдена', rewritten: 'текст переписан после проверки',
@@ -31,7 +31,11 @@ let pendingUser = null;           // вопрос, показанный до о�
 async function api(path, options) {
   const response = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.detail || response.statusText);
+  if (!response.ok) {
+    const error = new Error(body.detail || response.statusText);
+    error.status = response.status;
+    throw error;
+  }
   return body;
 }
 
@@ -134,7 +138,7 @@ function show(entry) {
     if (meta.text) node.append(el('div', 'bubble', meta.text));
     if (meta.notice) node.append(el('div', 'notice', meta.notice));
     if (meta.priority && meta.conflict) {
-      node.append(el('div', 'priority', 'Ответ службы качества приоритетнее регламента: регламент может быть в актуализации.'));
+      node.append(el('div', 'priority', 'Регламент — утверждённый документ, он главнее. Ответ службы качества показан как консультация по применению; при расхождении применяйте регламент.'));
     }
     if (meta.sources && meta.sources.length) {
       const box = el('div', 'sources');
@@ -161,6 +165,7 @@ function show(entry) {
     if (meta.tokens) facts.push(meta.tokens + ' ток.');
     if (meta.seconds) facts.push(meta.seconds + ' с');
     if (meta.clarifications) facts.push('уточнений: ' + meta.clarifications);
+    if (meta.route === 'smalltalk') facts.push((meta.models || []).length ? 'отвечено моделью' : 'без обращения к модели');
     node.append(el('div', 'meta', facts.join(' · ')));
     messagesEl.append(node);
   }
@@ -193,7 +198,8 @@ async function send(text) {
     if (message.id) { shown.add(message.id); lastId = Math.max(lastId, message.id); }
   } catch (error) {
     thinking(false);
-    show({ role: 'system', text: 'Не получилось: ' + error.message });
+    // лимит стенда — не ошибка, а защита бюджета: текст сервера показываем как есть
+    show({ role: 'system', text: error.status === 429 ? error.message : 'Не получилось: ' + error.message });
   } finally {
     busy = false;
     sendBtn.disabled = false;
@@ -370,6 +376,11 @@ async function loadStats() {
       row.append(el('span', '', ROUTE_NAMES[route] || route), el('b', '', String(n)));
       routes.append(row);
     });
+    if (report.smalltalk) {
+      const row = el('div');
+      row.append(el('span', '', ROUTE_NAMES.smalltalk), el('b', '', String(report.smalltalk)));
+      routes.append(row);
+    }
     box.append(routes, el('h4', 'sec', 'Вопросы без ответа — что внести в документацию'));
     if (!report.unanswered.length) box.append(el('div', 'empty', 'Предложений нет.'));
     report.unanswered.forEach((row, i) => box.append(el('p', '', (i + 1) + '. ' + row.question + ' — ' + row.n + ' раз(а)')));
@@ -411,6 +422,8 @@ $('#new-dialog').addEventListener('click', async () => {
     const health = await api('/api/health');
     const examples = $('#examples');
     health.examples.forEach((question) => examples.append(button('', question, () => send(question))));
+    if (health.ask_limit > 0) $('#limit-note').textContent =
+      'Демонстрационный стенд: до ' + health.ask_limit + ' вопросов в час с одного адреса — так мы бережём бюджет модели.';
   } catch (error) { /* примеры не обязательны */ }
   try {
     ticketMap = Object.fromEntries((await api('/api/tickets')).map((ticket) => [ticket.id, ticket]));

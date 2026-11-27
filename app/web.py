@@ -16,10 +16,13 @@ from . import config
 from .agent import KNOWLEDGE
 from .engine import load_engine
 from .llm import LLMClient
+from .ratelimit import RateLimiter, address_key, client_ip
 from .service import EXAMPLES, Service
 from .store import Store
 
 STATIC = Path(__file__).resolve().parent.parent / 'static'
+LIMIT_NOTICE = ('Демонстрационный стенд: не более %d вопросов в час с одного адреса — так мы бережём бюджет модели. '
+                'Ближайшее место освободится через %d мин.')
 
 
 def build(with_vectors=True):
@@ -38,7 +41,8 @@ class AnswerIn(BaseModel):
     author: str = 'Служба качества'
 
 
-def create_app(service=None, with_vectors=True):
+def create_app(service=None, with_vectors=True, ask_limit=None):
+    limiter = RateLimiter(config.ASK_LIMIT if ask_limit is None else ask_limit)
     @asynccontextmanager
     async def lifespan(app):
         if not hasattr(app.state, 'service'):           # на сервере служба собирается при запуске
@@ -64,7 +68,8 @@ def create_app(service=None, with_vectors=True):
                 'knowledge': sum(1 for u in service.engine.corpus.units if u.doc == KNOWLEDGE),
                 'model': config.LLM_MODEL, 'embeddings': config.EMBED_MODEL,
                 'model_served': service.store.served_model(),     # что реально ответило на последний запрос
-                'vectors': service.engine.search.vectors is not None, 'examples': EXAMPLES}
+                'vectors': service.engine.search.vectors is not None, 'examples': EXAMPLES,
+                'ask_limit': limiter.limit}     # вопросов в час с одного адреса; клиент пишет это на стенде
 
     @app.post('/api/session')
     def session(request: Request):
@@ -76,6 +81,12 @@ def create_app(service=None, with_vectors=True):
 
     @app.post('/api/ask')
     def ask(body: AskIn, request: Request):
+        # адрес — из заголовка прокси (стенд слушает только локальный порт): лимит бережёт бюджет модели
+        allowed, wait = limiter.allow(address_key(client_ip(
+            request.headers.get('x-forwarded-for'), request.client.host if request.client else None)))
+        if not allowed:
+            raise HTTPException(429, LIMIT_NOTICE % (limiter.limit, -(-wait // 60)),
+                                headers={'Retry-After': str(wait)})
         try:
             return svc(request).ask(body.session_id, body.text)
         except ValueError as e:

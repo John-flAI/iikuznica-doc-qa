@@ -170,19 +170,26 @@ class Store:
     # ---- статистика ----
 
     def analytics(self, days=None):
-        """Маршруты, токены и вопросы без ответа — за всё время или за последние days дней."""
-        where, args = ('WHERE route IS NOT NULL AND ts>=?', [since(days)]) if days else ('WHERE route IS NOT NULL', [])
+        """Маршруты, токены и вопросы без ответа — за всё время или за последние days дней.
+
+        «Общение не по регламентам» (smalltalk) считается отдельно: это не рабочий вопрос, и он не должен
+        ни занижать среднюю стоимость вопроса, ни попадать в предложения «что внести в документацию».
+        """
+        live = 'route IS NOT NULL AND route != \'smalltalk\''
+        where, args = ('WHERE %s AND ts>=?' % live, [since(days)]) if days else ('WHERE %s' % live, [])
         conn = self.connect()
         routes = {row['route']: row['n'] for row in conn.execute(
             'SELECT route, COUNT(*) n FROM questions %s GROUP BY route' % where, args)}
         tokens = conn.execute('SELECT COALESCE(SUM(tokens_in),0) a, COALESCE(SUM(tokens_out),0) b, '
                               'COUNT(*) n, COALESCE(AVG(tokens_in+tokens_out),0) avg, '
                               'COALESCE(AVG(seconds),0) sec FROM questions %s' % where, args).fetchone()
+        smalltalk = conn.execute("SELECT COUNT(*) n FROM questions WHERE route='smalltalk'%s"
+                                 % (' AND ts>=?' if days else ''), args).fetchone()['n']
         unanswered = [dict(row) for row in conn.execute(
             "SELECT question, COUNT(*) n FROM questions %s AND route IN ('not_found','unresolved') "
             "AND id NOT IN (SELECT question_id FROM tickets WHERE status='answered') "
             'GROUP BY question ORDER BY n DESC, MAX(id) DESC' % where, args)]      # на что служба уже ответила — не предложение
-        return {'questions': sum(routes.values()), 'routes': routes,
+        return {'questions': sum(routes.values()), 'routes': routes, 'smalltalk': smalltalk,
                 'tokens_in': tokens['a'], 'tokens_out': tokens['b'],
                 'avg_tokens': round(tokens['avg']), 'avg_seconds': round(tokens['sec'], 1),
                 'tickets': {s: len(self.tickets(s)) for s in ('draft', 'open', 'answered')},

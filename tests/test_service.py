@@ -144,11 +144,17 @@ class ServiceFlow(unittest.TestCase):
         self.assertEqual(report['proposals'][0]['n'], 1)
         self.assertIn('Кто имеет право', report['text'])
 
-    def test_off_topic_question_never_calls_the_model_and_still_gets_a_letter(self):
-        service = self.service(decide=lambda m: self.fail('модель не должна вызываться'))
-        message = service.ask(None, OFF_TOPIC)
-        self.assertEqual(message['route'], 'not_found')
-        self.assertEqual(message['ticket']['id'], 1)
+    def test_off_topic_question_costs_one_classifier_call_and_still_gets_a_letter(self):
+        calls = []
+
+        def decide(messages):
+            calls.append(messages)
+            return ok('{"kind": "question"}')                 # классификатор: это рабочий вопрос
+
+        message = self.service(decide=decide).ask(None, OFF_TOPIC)
+        self.assertEqual((message['route'], message['ticket']['id']), ('not_found', 1))
+        self.assertEqual(len(calls), 1)                       # один короткий вызов — без фрагментов
+        self.assertNotIn('Фрагменты регламентов', '\n'.join(m['content'] for m in calls[0]))
 
     def test_document_is_served_in_reading_order(self):
         service = self.service(reply=ok('{}'))

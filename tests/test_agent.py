@@ -191,10 +191,14 @@ class AgentLogic(unittest.TestCase):
         self.assertEqual(decision.route, 'unresolved')
         self.assertEqual(agent.llm.calls, 0)                  # лимит уточнений — модель уже не зовём
 
-    def test_off_topic_question_never_reaches_the_model(self):
+    def test_off_topic_question_never_reaches_the_decision(self):
+        """Подходящих фрагментов нет: решение по фрагментам не принимается — один вызов классификатора
+        («рабочий вопрос или разговор не по делу»), и фрагменты ему не показываются."""
         agent = self.agent(answer('f3:5.1'))
-        self.assertEqual(agent.ask('Как оформить отпуск за свой счёт?').route, 'not_found')
-        self.assertEqual(agent.llm.calls, 0)
+        decision = agent.ask('Как оформить отпуск за свой счёт?')
+        self.assertEqual((decision.route, agent.llm.calls), ('not_found', 1))
+        self.assertNotIn('Фрагменты регламентов', agent.llm.shown)
+        self.assertIn('не нашлось ничего подходящего', agent.llm.shown)
 
     def test_model_sees_only_verbatim_fragments_with_addresses(self):
         uid = self.one_per_document('Сколько заявок может быть у одного ПА?')['f3']

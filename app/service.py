@@ -3,16 +3,19 @@
 
 Диалог: вопрос → агент → ответ, уточнение или запрос в службу качества. Если ответа нет,
 в чате появляется готовое письмо и кнопка «Отправить». Сотрудник службы качества отвечает —
-ответ попадает в чат сотрудника и в базу знаний. Ответ службы качества главнее регламента
-(так ответил заказчик: регламент может быть в актуализации).
+ответ попадает в чат сотрудника и в базу знаний. Регламент — утверждённый документ, он главнее;
+ответ службы качества — консультация о том, как применять его нормы (позиция заказчика, Q&A 27.11).
 """
 import json
 import time
 
-from .agent import KNOWLEDGE, Agent
+from .agent import KNOWLEDGE, Agent, Decision
 from .ingest import SECTION, TEXT, Unit
+from .smalltalk import ROUTE as SMALLTALK
+from .smalltalk import smalltalk_kind, smalltalk_reply
 
 KB_TITLE = 'База знаний: ответы службы качества'
+CHATTER_LIMIT = 2            # столько раз подряд отвечаем на «не по регламентам» вежливо, дальше — коротко возвращаем к теме
 
 EXAMPLES = [
     'Сколько заявок может быть у одного ПА?',
@@ -80,14 +83,39 @@ class Service:
         if not text:
             raise ValueError('Вопрос пустой')
         session_id = self.store.session(session_id)['id']     # новый идентификатор, если сессии не было
+        chatter = self.chatter(session_id)
         self.store.add_message(session_id, 'user', text)
-        question, history = self.thread(session_id, text)
         started = time.perf_counter()
-        decision = self.agent.ask(question['question'], [tuple(h) for h in history])
+        kind = smalltalk_kind(text)
+        if kind:                     # приветствие или благодарность — не вопрос: модель не нужна, письмо не готовится
+            question, history = {'id': self.store.start_question(session_id, text), 'question': text}, []
+            steady = chatter >= CHATTER_LIMIT
+            decision = Decision(route=SMALLTALK, text=smalltalk_reply('steady' if steady else kind, EXAMPLES[0]))
+        else:
+            question, history = self.thread(session_id, text)
+            decision = self.agent.ask(question['question'], [tuple(h) for h in history])
+            if decision.route == SMALLTALK and (chatter >= CHATTER_LIMIT or not decision.text):
+                decision.text = smalltalk_reply('steady', EXAMPLES[0])   # разговор ушёл от темы — возвращаем к теме
         message = self.respond(session_id, question, history, decision, time.perf_counter() - started)
         message['id'] = self.store.add_message(session_id, 'agent', message.get('text', ''), meta=message)
         message['session_id'] = session_id
         return message
+
+    def chatter(self, session_id):
+        """Сколько раз подряд агент отвечал на «не по регламентам» (последнее сообщение — новое, сотрудника)."""
+        streak = 0
+        for message in reversed(self.store.messages(session_id)):
+            if message['role'] == 'user':
+                continue
+            try:
+                meta = json.loads(message['meta'] or '{}')
+            except ValueError:
+                meta = {}
+            if message['role'] == 'agent' and meta.get('route') == SMALLTALK:
+                streak += 1
+            else:
+                break
+        return streak
 
     def thread(self, session_id, text):
         """Продолжаем открытый вопрос (это ответ на уточнение) или начинаем новый."""
@@ -113,10 +141,15 @@ class Service:
                            sources=[self.source(c[0]) for c in decision.cites])
             if not decision.text:
                 message['notice'] = NOTICES['verbatim']
+            # priority — в ответе есть ответ службы качества (запись базы знаний); conflict — рядом пункт регламента.
+            # Интерфейс поясняет: регламент главнее, ответ службы качества — консультация по применению.
             message['priority'] = any(s['doc'] == KNOWLEDGE for s in message['sources'])
             message['conflict'] = message['priority'] and any(s['doc'] != KNOWLEDGE for s in message['sources'])
             self.store.touch_question(question['id'], route=route, uids=[s['uid'] for s in message['sources']],
                                       awaiting=None, **common)
+        elif route == SMALLTALK:
+            message.update(text=decision.text)
+            self.store.touch_question(question['id'], route=route, awaiting=None, **common)
         elif route == 'clarify':
             message.update(text=decision.question, clarify={
                 'question': decision.question,

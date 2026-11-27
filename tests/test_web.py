@@ -19,12 +19,12 @@ except ImportError:
     from test_agent import FakeLLM, ok
 
 
-def client_for(decide):
-    """Стенд на поддельной модели с пустым хранилищем."""
+def client_for(decide, ask_limit=0):
+    """Стенд на поддельной модели с пустым хранилищем; лимит вопросов по умолчанию выключен."""
     llm = FakeLLM(ok('{}'))
     llm.chat = lambda messages, max_tokens=600, temperature=0: decide(messages)
     service = Service(load_engine(DATA, with_vectors=False), llm, Store(Path(tempfile.mkdtemp()) / 'state.db'))
-    return TestClient(create_app(service, with_vectors=False))
+    return TestClient(create_app(service, with_vectors=False, ask_limit=ask_limit))
 
 
 class Stand(unittest.TestCase):
@@ -47,9 +47,10 @@ class Stand(unittest.TestCase):
 
     def test_health_shows_the_model_that_actually_answered(self):
         """Провайдер может обслужить запрос другой моделью: показываем имя из ответа, а не из конфигурации."""
-        self.assertIsNone(self.client.get('/api/health').json()['model_served'])
-        self.client.post('/api/ask', json={'text': 'Сколько заявок может быть у одного ПА?'})
-        self.assertEqual(self.client.get('/api/health').json()['model_served'], 'fake')
+        client = client_for(lambda m: ok('{"kind": "question"}'))
+        self.assertIsNone(client.get('/api/health').json()['model_served'])
+        client.post('/api/ask', json={'text': 'Сколько заявок может быть у одного ПА?'})
+        self.assertEqual(client.get('/api/health').json()['model_served'], 'fake')
 
     def test_new_session_is_created_on_request(self):
         first = self.client.post('/api/session').json()['id']
@@ -101,6 +102,57 @@ class Stand(unittest.TestCase):
         self.assertGreaterEqual(report['questions'], 1)
         self.assertGreaterEqual(report['routes']['not_found'], 1)
         self.assertIn('отпуск', self.client.get('/api/weekly').json()['text'])
+
+    def test_limit_is_announced_in_health(self):
+        self.assertEqual(self.client.get('/api/health').json()['ask_limit'], 0)
+
+
+class AskLimit(unittest.TestCase):
+    """Стенд демонстрационный: с одного адреса — не больше лимита вопросов в час."""
+
+    def setUp(self):
+        self.address = {'x-forwarded-for': '203.0.113.9'}
+        self.question = {'text': 'Как оформить командировку сотруднику?'}
+
+    def limited(self, limit=3):
+        return client_for(lambda m: ok('{"kind": "question"}'), ask_limit=limit)
+
+    def test_fourth_question_from_one_address_is_declined_with_retry_after(self):
+        client = self.limited(3)
+        for _ in range(3):
+            self.assertEqual(client.post('/api/ask', json=self.question, headers=self.address).status_code, 200)
+        fourth = client.post('/api/ask', json=self.question, headers=self.address)
+        self.assertEqual(fourth.status_code, 429)
+        self.assertIn('не более 3 вопросов в час с одного адреса', fourth.json()['detail'])
+        self.assertIn('бережём бюджет модели', fourth.json()['detail'])
+        self.assertGreater(int(fourth.headers['retry-after']), 0)
+        self.assertEqual(client.get('/api/health').json()['ask_limit'], 3)
+
+    def test_other_addresses_have_their_own_count(self):
+        client = self.limited(3)
+        for _ in range(4):
+            client.post('/api/ask', json=self.question, headers=self.address)
+        other = client.post('/api/ask', json=self.question)                  # другой адрес — без заголовка прокси
+        self.assertEqual(other.status_code, 200)
+
+    def test_client_cannot_pick_its_own_address(self):
+        client = self.limited(3)
+        for _ in range(3):
+            client.post('/api/ask', json=self.question, headers=self.address)
+        forged = {'x-forwarded-for': '9.9.9.9, 203.0.113.9'}                 # свой адрес клиент дописал впереди
+        self.assertEqual(client.post('/api/ask', json=self.question, headers=forged).status_code, 429)
+
+    def test_greeting_is_not_counted_as_a_question(self):
+        client = self.limited(3)
+        for _ in range(3):
+            client.post('/api/ask', json=self.question, headers=self.address)
+        declined = client.post('/api/ask', json={'text': 'привет'}, headers=self.address)
+        self.assertEqual(declined.status_code, 429)                          # лимит — на запрос, а не на вызов модели
+
+    def test_zero_disables_the_limit(self):
+        client = self.limited(0)
+        self.assertEqual([client.post('/api/ask', json=self.question, headers=self.address).status_code
+                          for _ in range(25)], [200] * 25)
 
 
 if __name__ == '__main__':
