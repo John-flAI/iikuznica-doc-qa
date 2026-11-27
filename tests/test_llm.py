@@ -3,7 +3,7 @@
 import unittest
 from unittest import mock
 
-from app.llm import PAUSES, LLMClient, Reply, Usage, parse_json
+from app.llm import PAUSES, PAUSES_WITH_FALLBACK, LLMClient, Reply, Usage, parse_json
 
 
 def overloaded():
@@ -55,17 +55,17 @@ class Client(unittest.TestCase):
         self.assertEqual((usage.calls, usage.prompt_tokens, usage.completion_tokens), (1, 300, 20))
 
     def test_fallback_model_takes_over_when_main_is_overloaded(self):
-        client = self.client([overloaded()] * len(PAUSES) + [fine(model='reserve')], fallback_model='reserve')
+        client = self.client([overloaded()] * len(PAUSES_WITH_FALLBACK) + [fine(model='reserve')], fallback_model='reserve')
         with mock.patch('app.llm.time.sleep'):
             reply = client.chat([])
-        self.assertEqual((reply.ok, reply.model, reply.attempts), (True, 'reserve', len(PAUSES) + 1))
+        self.assertEqual((reply.ok, reply.model, reply.attempts), (True, 'reserve', len(PAUSES_WITH_FALLBACK) + 1))
 
     def test_both_models_down_is_an_error_not_a_crash(self):
-        client = self.client([overloaded()] * (2 * len(PAUSES)), fallback_model='reserve')
+        client = self.client([overloaded()] * (2 * len(PAUSES_WITH_FALLBACK)), fallback_model='reserve')
         with mock.patch('app.llm.time.sleep'):
             reply = client.chat([])
         self.assertFalse(reply.ok)
-        self.assertEqual(reply.attempts, 2 * len(PAUSES))
+        self.assertEqual(reply.attempts, 2 * len(PAUSES_WITH_FALLBACK))
 
     def test_truncated_answer_is_retried_with_a_bigger_budget(self):
         cut = Reply(text='{"action": "ans', ok=True, truncated=True, prompt_tokens=100, completion_tokens=600), False

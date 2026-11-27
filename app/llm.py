@@ -15,6 +15,8 @@ RETRY_STATUS = {429, 500, 502, 503, 504, 529}
 # Паузы перед повторами, секунды. Перегрузка бесплатной GLM-4.7-Flash в облаке — до половины вызовов,
 # но отказ приходит мгновенно и короткими сериями (замер 27.11: серии до семи подряд): чаще — важнее, чем дольше.
 PAUSES = (0.5, 1, 1.5, 2, 2, 3, 3, 4, 5)
+# Есть запасная модель — основную не мучаем: короткая серия, и запрос уходит в резерв
+PAUSES_WITH_FALLBACK = (0.4, 0.8, 1.2, 1.6, 2)
 # Модели с «размышлением» тратят на него весь лимит и не успевают ответить. Выключаем тем
 # переключателем, который понимает сервер: Ollama — reasoning_effort, облако — thinking.
 NO_THINKING = {'reasoning_effort': 'none', 'thinking': {'type': 'disabled'}}
@@ -43,8 +45,10 @@ class Usage:
     completion_tokens: int = 0
     seconds: float = 0.0
     by_step: dict = field(default_factory=dict)
+    steps: list = field(default_factory=list)      # [(шаг, Reply)] — по одному на вызов модели
 
     def add(self, reply, step):
+        self.steps.append((step, reply))
         prompt = reply.prompt_tokens + reply.retry_prompt_tokens
         completion = reply.completion_tokens + reply.retry_completion_tokens
         self.calls += 1
@@ -59,7 +63,9 @@ class Usage:
     def as_dict(self):
         return {'calls': self.calls, 'prompt_tokens': self.prompt_tokens,
                 'completion_tokens': self.completion_tokens, 'seconds': round(self.seconds, 2),
-                'by_step': self.by_step}
+                'by_step': self.by_step,
+                'models': list(dict.fromkeys(r.model for _, r in self.steps if r.model)),
+                'attempts': sum(r.attempts for _, r in self.steps)}
 
 
 class LLMClient:
@@ -103,8 +109,9 @@ class LLMClient:
         """Повторы при перегрузке, затем запасная модель. Reply.attempts — сколько было попыток."""
         models = [self.model] + ([self.fallback_model] if self.fallback_model and self.fallback_model != self.model else [])
         reply, attempts, budget, lost = Reply(model=self.model), 0, max_tokens, [0, 0]
+        pauses = PAUSES_WITH_FALLBACK if len(models) > 1 else PAUSES
         for model in models:
-            for pause in PAUSES:
+            for pause in pauses:
                 reply, failed_retryable = self._call(model, messages, budget, temperature)
                 reply.attempts = attempts = attempts + 1
                 retryable = failed_retryable
@@ -115,7 +122,7 @@ class LLMClient:
                     break
                 lost[0] += reply.prompt_tokens      # неудачная попытка тоже стоила токенов
                 lost[1] += reply.completion_tokens
-                if pause is not PAUSES[-1]:
+                if pause is not pauses[-1]:
                     time.sleep(pause)
             if reply.ok:
                 break

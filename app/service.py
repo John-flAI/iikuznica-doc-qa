@@ -102,11 +102,11 @@ class Service:
         return {'id': self.store.start_question(session_id, text), 'question': text}, []
 
     def respond(self, session_id, question, history, decision, seconds):
-        for reply in decision.replies:
-            self.store.log_llm(reply, 'decide', session_id, question['id'])
+        for step, reply in decision.usage.steps:      # журнал вызовов: шаг и модель — какие были на деле
+            self.store.log_llm(reply, step, session_id, question['id'])
         route = decision.route
         message = {'role': 'agent', 'route': route, 'tokens': decision.tokens, 'seconds': round(seconds, 1),
-                   'clarifications': len(history)}
+                   'clarifications': len(history), 'models': decision.usage.as_dict()['models']}
         common = dict(turns=decision.turns, clarifications=history)
         if route == 'answer':
             message.update(text=decision.text, checks=decision.checks,
