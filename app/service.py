@@ -9,6 +9,7 @@
 import json
 import time
 
+from . import config, mail
 from .agent import KNOWLEDGE, Agent, Decision
 from .ingest import SECTION, TEXT, Unit
 from .smalltalk import ROUTE as SMALLTALK
@@ -38,6 +39,14 @@ NOTICES = {
 NO_KEY = ('Стенд не получил доступа к модели: ключ не задан или не принят. Показываю найденные пункты '
           'без обработки модели — проверьте их самостоятельно.')
 
+# Адреса фиксированных ролей — из ACCOUNTS, строками не дублируем. Агент — почтовый посредник:
+# вопрос службе качества и уведомление сотруднику приходят от агента (question, notice),
+# ответ службы качества агенту агент передаёт сотруднику (reply, answer).
+MAILBOX = {'question': (config.ACCOUNTS['agent'][1], config.ACCOUNTS['quality'][1]),
+           'notice': (config.ACCOUNTS['agent'][1], config.ACCOUNTS['client'][1]),
+           'reply': (config.ACCOUNTS['quality'][1], config.ACCOUNTS['agent'][1]),
+           'answer': (config.ACCOUNTS['agent'][1], config.ACCOUNTS['client'][1])}
+
 
 def letter(ticket):
     """Готовое письмо в службу качества: вопрос, что нашлось, просьба ответить."""
@@ -49,6 +58,25 @@ def letter(ticket):
         lines += ['', 'Что нашлось по теме:', ticket['context']]
     lines += ['', 'Прошу дать ответ — он будет добавлен в базу знаний агента.']
     return '\n'.join(lines)
+
+
+def notice_letter(ticket):
+    """Письмо сотруднику: его вопрос принят, передан службе качества, ответ придёт на почту и в чат."""
+    return '\n'.join(['Тема: ваш вопрос передан службе качества — запрос №%d' % ticket['id'], '',
+                      'Здравствуйте!', '',
+                      'Ваш вопрос принят и передан в службу качества:', '',
+                      '«%s»' % ticket['question'], '',
+                      'Ответ придёт на эту почту и в чат.'])
+
+
+def answer_letter(ticket):
+    """Текст ответа: вопрос сотрудника и ответ службы качества дословно (агент передаёт его сотруднику)."""
+    return '\n'.join(['Тема: ответ службы качества — запрос №%d' % ticket['id'], '',
+                      'Здравствуйте!', '',
+                      'Служба качества ответила на ваш вопрос.', '',
+                      'Ваш вопрос:', '«%s»' % ticket['question'], '',
+                      'Ответ:', ticket['answer'], '',
+                      'Ответ также добавлен в базу знаний агента.'])
 
 
 def kb_unit(ticket):
@@ -214,10 +242,27 @@ class Service:
         return {'uid': unit.uid, 'doc': unit.doc, 'doc_title': self.engine.corpus.title(unit.doc),
                 'address': address, 'quote': unit.quote}
 
+    def deliver(self, kind, subject, text, ticket_id, owner):
+        """Сохранить письмо в базе, затем попытаться отправить по SMTP; ошибка отправки не ломает действие."""
+        sender, recipient = MAILBOX[kind]
+        letter_id = self.store.add_letter(owner=owner, kind=kind, mail_from=sender, mail_to=recipient,
+                                          subject=subject, text=text, ticket_id=ticket_id)
+        delivered = mail.send(config.MAIL_SMTP, self.store.letter(letter_id))
+        self.store.set_delivered(letter_id, delivered)
+        return delivered
+
     # ---- служба качества ----
 
     def send(self, ticket_id):
+        draft = self.store.ticket(ticket_id)               # письма в службу — разовые: шлём при первой отправке
         ticket = self.store.send_ticket(ticket_id)
+        if draft and draft['status'] == 'draft':           # повторный вызов письма второй раз не шлёт
+            owner, number = self.store.ticket_owner(ticket['id']), ticket['id']
+            statuses = [self.deliver('question', 'Вопрос в службу качества №%d' % number,
+                                     letter(ticket), number, owner),
+                        self.deliver('notice', 'Ваш вопрос передан в службу качества, №%d' % number,
+                                     notice_letter(ticket), number, owner)]
+            ticket['letter_delivered'] = mail.delivered_of(statuses)
         self.store.add_message(ticket['session_id'], 'system',
                                'Письмо отправлено в службу качества, запрос №%d.' % ticket['id'],
                                meta={'role': 'system', 'route': 'sent', 'ticket_id': ticket['id']})
@@ -227,8 +272,16 @@ class Service:
         answer, author = ' '.join((answer or '').split()), ' '.join((author or 'Служба качества').split())
         if not answer:
             raise ValueError('Ответ пустой')
+        was = self.store.ticket(ticket_id)                 # письма сотруднику — при первом ответе
         ticket = self.store.answer_ticket(ticket_id, answer, author)
         unit = self.learn(ticket)
+        if was and was['status'] != 'answered':            # повторный ответ письма второй раз не шлёт
+            owner, number = self.store.ticket_owner(ticket['id']), ticket['id']
+            statuses = [self.deliver('reply', 'Ответ службы качества №%d' % number,
+                                     answer_letter(ticket), number, owner),
+                        self.deliver('answer', 'Ответ на ваш вопрос №%d' % number,
+                                     answer_letter(ticket), number, owner)]
+            ticket['letter_delivered'] = mail.delivered_of(statuses)
         self.store.add_message(ticket['session_id'], 'qc', answer,
                                meta={'role': 'qc', 'route': 'qc', 'ticket_id': ticket['id'],
                                      'author': author, 'sources': [self.source(unit)]})

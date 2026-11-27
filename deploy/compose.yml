@@ -12,6 +12,7 @@ services:
     env_file: .env
     environment:
       EMBED_BASE_URL: http://embeddings:11434/v1
+      MAIL_SMTP: mailpit:1025             # письма принимает тестовый сервер mailpit, наружу портов нет
       REGQA_STATE: /var/lib/iikuznica
     volumes:
       - stand-state:/var/lib/iikuznica
@@ -40,6 +41,14 @@ services:
       start_period: 600s
     # при первом старте скачиваем единственную модель — и держим сервер
     entrypoint: ["/bin/sh", "-c", "ollama serve >/dev/null 2>&1 & ollama pull bge-m3 >/dev/null 2>&1; wait"]
+
+  mailpit:
+    image: axllent/mailpit:latest           # тестовый почтовый сервер: письма видны в его веб-интерфейсе
+    container_name: iikuznica-mailpit
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "500"
+    mem_limit: 128m
 
 volumes:
   stand-state:

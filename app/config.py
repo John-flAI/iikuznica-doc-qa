@@ -36,6 +36,17 @@ LLM_MODELS = os.environ.get('LLM_MODELS', MODELS)
 # Каждый вопрос — вызов платной модели, поэтому лимит написан на самом стенде.
 ASK_LIMIT = int(os.environ.get('ASK_LIMIT', '20'))
 
+# Фиксированные роли стенда: имя роли → (подпись, адрес). Агент — почтовый посредник между
+# сотрудником и службой качества. Вход фиктивный — пароля нет и не проверяется, это не секрет:
+# страницы входа и ящиков рисует дизайнер по данным из /api/login и /api/health.
+ACCOUNTS = {'client': ('Сотрудник', 'client1@docii.aized.ru'),
+            'quality': ('Служба качества', 's.kachestva@docii.aized.ru'),
+            'agent': ('ДокИИ', 'agent@docii.aized.ru')}
+
+# Тестовый почтовый сервер «host:port» (на стенде в docker — mailpit:1025). Пусто — письма только
+# сохраняются в базе и доступны через /api/letters, по SMTP не уходят (локальный стенд так и работает).
+MAIL_SMTP = os.environ.get('MAIL_SMTP', '')
+
 
 def models():
     """Каталог моделей стенда: [{id, label, base_url, model, key_env, key}] — только записи, у которых есть ключ."""

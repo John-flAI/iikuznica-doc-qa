@@ -64,6 +64,32 @@ class NameIn(BaseModel):
     name: str = ''                # имя чата на вкладке; пустое — имя по умолчанию
 
 
+class LoginIn(BaseModel):
+    role: str                     # фиксированная роль из /api/health: 'client' или 'quality'
+
+
+def mail_delivered(value):
+    """Статус доставки письма в JSON: NULL → null, 0 → false, 1 → true."""
+    return None if value is None else bool(value)
+
+
+def mail_view(row, address):
+    """Письмо для списка ящика: адрес роли решает, исходящее это или входящее."""
+    return {'id': row['id'], 'created': row['created'], 'kind': row['kind'],
+            'outgoing': row['mail_from'] == address,
+            'from': row['mail_from'], 'to': row['mail_to'], 'cc': row['mail_cc'] or '',
+            'subject': row['subject'], 'snippet': (row['text'] or '')[:160],
+            'ticket_id': row['ticket_id'], 'delivered': mail_delivered(row['delivered'])}
+
+
+def mail_full(row):
+    """Письмо целиком для просмотра."""
+    return {'id': row['id'], 'created': row['created'], 'kind': row['kind'],
+            'from': row['mail_from'], 'to': row['mail_to'], 'cc': row['mail_cc'] or '',
+            'subject': row['subject'], 'text': row['text'], 'ticket_id': row['ticket_id'],
+            'delivered': mail_delivered(row['delivered'])}
+
+
 class AnswerIn(BaseModel):
     answer: str = Field(max_length=ANSWER_LIMIT)
     author: str = Field('Служба качества', max_length=AUTHOR_LIMIT)
@@ -134,7 +160,9 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
                 'model_served': service.store.served_model(),     # что реально ответило на последний запрос
                 'vectors': service.engine.search.vectors is not None, 'examples': EXAMPLES,
                 'ask_limit': limiter.limit,     # вопросов в час с одного адреса; клиент пишет это на стенде
-                'models': service.models(), 'model_default': service.catalog[0]['id'] if service.catalog else None}
+                'models': service.models(), 'model_default': service.catalog[0]['id'] if service.catalog else None,
+                'accounts': {role: {'name': name, 'email': email} for role, (name, email) in config.ACCOUNTS.items()},
+                'mail': {'smtp': bool(config.MAIL_SMTP)}}   # письмо уходит по SMTP, только если сервер задан
 
     @app.post('/api/session')
     def session(request: Request, body: SessionIn | None = None):
@@ -194,12 +222,40 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
         except ValueError as e:
             raise HTTPException(400, str(e))
 
+    @app.post('/api/login')
+    def login(body: LoginIn):
+        """Вход фиктивный: роль сверяется со списком, пароля нет, сервер ничего не запоминает."""
+        account = config.ACCOUNTS.get(body.role)
+        if account is None:
+            raise HTTPException(400, 'Нет такой роли: клиент, служба качества или агент')
+        name, email = account
+        return {'role': body.role, 'name': name, 'email': email}
+
+    @app.get('/api/letters')
+    def letters(request: Request, role: str | None = None):
+        """Ящик роли: письма владельца адреса, где адрес роли стоит во from, to или cc; новые сверху."""
+        account = config.ACCOUNTS.get(role)
+        if account is None:
+            raise HTTPException(400, 'Нет такой роли: клиент, служба качества или агент')
+        store = svc(request).store
+        return [mail_view(row, account[1]) for row in store.letters(owner_of(request), account[1])]
+
+    @app.get('/api/letter/{letter_id}')
+    def letter(letter_id: int, request: Request):
+        found = svc(request).store.letter(letter_id, owner=owner_of(request))
+        if found is None:                     # чужое письмо — как «нет такого», номер не подсказываем
+            raise HTTPException(404, 'нет такого письма')
+        return mail_full(found)
+
     @app.get('/api/tickets')
     def tickets(request: Request, status: str | None = None):
         owner = owner_of(request)
-        if status in ('draft', 'open', 'answered'):
-            return svc(request).store.tickets(status, owner=owner)
-        return [t for t in svc(request).store.tickets(owner=owner) if t['status'] != 'draft']
+        store = svc(request).store
+        result = store.tickets(status, owner=owner) if status in ('draft', 'open', 'answered') \
+            else [t for t in store.tickets(owner=owner) if t['status'] != 'draft']
+        for ticket in result:                 # почта запроса: доставлены ли все её письма
+            ticket['letter_delivered'] = store.letter_delivered(ticket['id'])
+        return result
 
     @app.post('/api/tickets/{ticket_id}/send')
     def send(ticket_id: int, request: Request):

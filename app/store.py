@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS tickets (
     question TEXT, context TEXT, email TEXT DEFAULT '',
     status TEXT DEFAULT 'draft',              -- draft: ждёт кнопки «Отправить» · open: в очереди · answered
     answer TEXT, answered_by TEXT, answered_at TEXT);
+CREATE TABLE IF NOT EXISTS letters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, created TEXT, owner TEXT,
+    kind TEXT,                                -- question: вопрос в службу качества · answer: ответ службы качества
+    mail_from TEXT, mail_to TEXT, mail_cc TEXT DEFAULT '', subject TEXT, text TEXT,
+    ticket_id INTEGER,
+    delivered INTEGER);                       -- NULL: SMTP не задан · 0: ошибка отправки · 1: доставлено
 CREATE TABLE IF NOT EXISTS llm_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, session_id TEXT, question_id INTEGER,
     step TEXT, model TEXT, prompt_tokens INTEGER, completion_tokens INTEGER, seconds REAL,
@@ -246,6 +252,45 @@ class Store:
         self._run("UPDATE tickets SET status='answered', answer=?, answered_by=?, answered_at=? WHERE id=?",
                   answer, author, now(), ticket_id)
         return self.ticket(ticket_id)
+
+    def ticket_owner(self, ticket_id):
+        """Владелец запроса — владелец сессии сотрудника, который его задал; переписка — часть запроса."""
+        row = self._one('SELECT s.owner AS owner FROM tickets t JOIN sessions s ON s.id=t.session_id WHERE t.id=?',
+                        ticket_id)
+        return row['owner'] if row else None
+
+    # ---- почта ----
+
+    def add_letter(self, owner, kind, mail_from, mail_to, subject, text, ticket_id, mail_cc=''):
+        """Новое письмо владельца; delivered пока NULL — решится при попытке отправки."""
+        return self._run('INSERT INTO letters(created, owner, kind, mail_from, mail_to, mail_cc, subject, text, '
+                         'ticket_id, delivered) VALUES(?,?,?,?,?,?,?,?,?,NULL)',
+                         now(), owner or '', kind, mail_from, mail_to, mail_cc, subject, text, ticket_id)
+
+    def letter(self, letter_id, owner=None):
+        """Письмо по номеру; с владельцем — только своё: чужое и несуществующее одинаково «не найдено»."""
+        row = self._one('SELECT * FROM letters WHERE id=?', letter_id)
+        if row is None or owner is None:
+            return row
+        return row if row['owner'] == owner else None
+
+    def letters(self, owner, address, limit=100):
+        """Ящик роли: письма владельца, где его адрес стоит во from, to или cc; новые сверху."""
+        return self._all(
+            "SELECT * FROM letters WHERE owner=? AND (mail_from=? OR mail_to=? "
+            "OR (',' || REPLACE(mail_cc, ' ', '') || ',') LIKE ?) ORDER BY id DESC LIMIT ?",
+            owner or '', address, address, '%,' + address + ',%', limit)
+
+    def set_delivered(self, letter_id, delivered):
+        """Пометить доставку: NULL — SMTP не задан, 0 — не ушло, 1 — доставлено."""
+        self._run('UPDATE letters SET delivered=? WHERE id=?', delivered, letter_id)
+
+    def letter_delivered(self, ticket_id):
+        """Общий статус писем запроса: None — SMTP не задан, False — хоть одно не доставлено, True — все доставлены."""
+        statuses = [row['delivered'] for row in self._all('SELECT delivered FROM letters WHERE ticket_id=?', ticket_id)]
+        if not statuses or all(s is None for s in statuses):
+            return None
+        return all(bool(s) for s in statuses)
 
     # ---- статистика ----
 
