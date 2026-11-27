@@ -137,6 +137,22 @@ class AgentLogic(unittest.TestCase):
         self.assertIsNone(agent.named_regulation('Какова организация совещаний по проекту?'))   # слова те же, названия нет
         self.assertEqual(agent.named_regulation('Кто назначает РП в ДБРЦТ?'), 'f4')
 
+    def test_named_regulation_keeps_candidates_even_on_low_word_overlap(self):
+        """Регламент назван, а слова вопроса в его пунктах почти не встречаются — всё равно показываем модели
+        лучшие пункты этого регламента: «нет ответа» пусть решает она, а не порог."""
+        from types import SimpleNamespace
+        agent = self.agent(ok('{}'))
+        unit = self.engine.corpus.get('f2:1.1')
+        weak = SimpleNamespace(uid=unit.uid, similarity=0.2, coverage=0.2, unit=unit)
+        search = agent.engine.search
+        agent.engine.search = SimpleNamespace(
+            per_document=lambda query, k_each=3: {'f2': [weak]}, vectors=search.vectors)
+        try:
+            self.assertEqual(agent.candidates('любой вопрос'), {})                            # без названия — отсекается
+            self.assertEqual(list(agent.candidates('любой вопрос', scope='f2')), [unit.uid])   # с названием — показываем
+        finally:
+            agent.engine.search = search
+
     def test_named_regulation_narrows_the_search(self):
         candidates = self.agent(ok('{}')).candidates(RISKS, scope='f2')
         self.assertTrue(candidates)

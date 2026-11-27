@@ -49,9 +49,11 @@ SYSTEM = """Ты — внутренний агент компании. Сотр�
 action = "answer" — фрагменты дают прямой ответ, и он верен для этого сотрудника.
 action = "clarify" — фрагменты дают разные ответы в зависимости от условия, которого нет в вопросе: в разных регламентах разные сроки, ответственные или запреты; либо вопрос можно понять по-разному. Задай ОДИН короткий вопрос и предложи 2–4 варианта. Если различие — между регламентами, варианты должны быть названиями регламентов точно как в поле «Регламент» у фрагментов.
 Один и тот же ответ есть сразу в нескольких регламентах и не расходится (те же сроки, те же ответственные, тот же запрет) — отвечай сразу: action = "answer", "same": true, а в cites перечисли по одному пункту каждого из этих регламентов. Если сроки, ответственные или запреты различаются — "same": false и clarify.
+Уточняй только тогда, когда без ответа сотрудника нельзя выбрать между разными правилами. Не задавай вопросов, которые ответ не меняют («какой это проект», «вся ли информация предоставлена»), если пункт даёт срок или правило для общего случая.
 Фрагменты из базы знаний — это ответы службы качества. Они приоритетнее регламентов: если регламент говорит иначе, приведи ответ службы качества и укажи на расхождение.
 Не отвечай пунктом, который сам начинается с условия («если», «при», «в случае»), пока это условие не согласовано с сотрудником, — сначала уточни его.
 action = "not_found" — ни один фрагмент не отвечает на вопрос. Если фрагменты лишь упоминают тему, но не дают конкретного правила, срока, числа или порядка действий — это тоже not_found. Но если фрагменты о том, о чём спросили, и ответ зависит от условия — это не not_found, а clarify.
+Следи за предметом вопроса: фрагмент отвечает, только если в нём речь о том же объекте. Спрашивают о приоритетах заявок — пункт о приоритетах рисков не подходит, даже если слова те же.
 
 Возвращай только JSON:
 {"action": "answer" | "clarify" | "not_found",
@@ -176,7 +178,7 @@ class Agent:
         wanted = choice.get('cites')
         chosen = [candidates[c] for c in dict.fromkeys(wanted if isinstance(wanted, list) else [])
                   if c in candidates]
-        passing = [c for c in chosen if self.relevance(c[1], c[2]) >= self.min_similarity]
+        passing = [c for c in chosen if self.relevance(c[1], c[2]) >= self.floor(scope, self.min_similarity)]
         if not passing:
             decision.route = 'not_found'
             return
@@ -220,6 +222,11 @@ class Agent:
         return [next((doc for doc, title in titles.items() if title.casefold() in o.casefold()), None)
                 for o in options]
 
+    def floor(self, scope, base=CANDIDATE_FLOOR):
+        """Порог близости фрагмента к вопросу. Регламент назван — ниже: сотрудник уже сказал, где искать,
+        а внутри одного регламента словесного покрытия меньше (его фрагменты похожи друг на друга)."""
+        return base if scope is None else base * 0.6
+
     def candidates(self, query, scope=None):
         """Лучшие фрагменты каждого регламента, достаточно близкие к вопросу: {uid: (unit, sim, cov)}."""
         groups = self.engine.search.per_document(query, k_each=PER_DOCUMENT if scope is None else PER_DOCUMENT + 2)
@@ -228,8 +235,12 @@ class Agent:
             if scope is not None and doc != scope:       # сотрудник назвал регламент — ищем только в нём
                 continue
             for hit in hits:
-                if self.relevance(hit.similarity, hit.coverage) >= CANDIDATE_FLOOR:
+                if self.relevance(hit.similarity, hit.coverage) >= self.floor(scope):
                     found[hit.uid] = (hit.unit, hit.similarity, hit.coverage)
+        if scope is not None and not found:
+            # регламент назван, а по словам не нашлось — берём лучшие его фрагменты: модель решит, есть ли ответ
+            for hit in groups.get(scope, [])[:PER_DOCUMENT]:
+                found[hit.uid] = (hit.unit, hit.similarity, hit.coverage)
         return found
 
     def best_of_each(self, query, scope=None):
