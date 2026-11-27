@@ -31,6 +31,8 @@ NOTICES = {
                   'и уточнения не сняли различие. Подготовил письмо в службу качества.',
     'degraded': 'Модель временно недоступна. Показываю найденные пункты без обработки модели — '
                 'проверьте их самостоятельно или повторите вопрос через минуту.',
+    'unavailable': 'Модель временно недоступна, поэтому связного ответа нет. Показываю найденные пункты '
+                   'дословно — проверьте их самостоятельно или повторите вопрос через минуту.',
     'verbatim': 'Связный текст не прошёл проверку на опору в регламенте, поэтому привожу пункты дословно.',
 }
 
@@ -139,8 +141,8 @@ class Service:
         if route == 'answer':
             message.update(text=decision.text, checks=decision.checks,
                            sources=[self.source(c[0]) for c in decision.cites])
-            if not decision.text:
-                message['notice'] = NOTICES['verbatim']
+            if not decision.text:        # пункты дословно — скажем почему: модель не ответила или текст не прошёл проверку
+                message['notice'] = NOTICES['unavailable' if decision.checks.get('judge') == 'unavailable' else 'verbatim']
             # priority — в ответе есть ответ службы качества (запись базы знаний); conflict — рядом пункт регламента.
             # Интерфейс поясняет: регламент главнее, ответ службы качества — консультация по применению.
             message['priority'] = any(s['doc'] == KNOWLEDGE for s in message['sources'])

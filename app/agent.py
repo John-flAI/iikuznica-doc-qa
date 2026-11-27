@@ -11,6 +11,7 @@
     агент не выбирает сам, он спрашивает; названный регламент сужает следующий поиск;
   • числа в пояснении модели должны быть в цитатах, иначе пояснение не показывается.
 """
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -31,6 +32,72 @@ ABBREV = re.compile(r'[А-ЯA-Z]{2,}')                                   # аб�
 # уточнение, которое ответ не меняет: пункт даёт срок или правило для общего случая
 NEEDLESS = re.compile(r'пол\w* информаци|вся ли информаци|вс[её] ли (данные|сведения|документы|условия) '
                       r'предоставл|предоставл\w* ли (вся|пол\w*)', re.I)
+WORD4 = re.compile(r'[а-яёa-z]{4,}', re.I)
+SHORT = re.compile(r'(?<![А-ЯЁ])[А-ЯЁ]{2,6}(?![А-ЯЁ])')     # аббревиатуры предмета: ТКП, ПА, РП, СС
+# окончания — от длинных к коротким; отрезаем одно, если основа остаётся не короче трёх букв
+ENDINGS = ('иями', 'ями', 'ами', 'иях', 'ях', 'ах', 'ого', 'его', 'ому', 'ему', 'ими', 'ыми', 'ией', 'ей', 'ой',
+           'ый', 'ий', 'ая', 'яя', 'ое', 'ее', 'ие', 'ые', 'ов', 'ев', 'ью', 'ом', 'ем', 'ех', 'ым', 'им', 'ую', 'юю',
+           'и', 'ы', 'а', 'я', 'о', 'е', 'у', 'ю', 'й', 'ь')
+# глаголы и причастия — не предмет: «присваивается», «готовит», «назначается»
+VERB = re.compile(r'(ся|ть|ут|ют|ит|ят|ал|ял|ил|ла|ли|йте|ем|им|шь|ует|яет|ает|ирует)$', re.I)
+# слова о сути вопроса, а не о предмете: «приоритет», «критерий», «порядок», «сколько», «надо», «одном»
+ABSTRACT_WORDS = ('приоритет критерий порядок правило права требование условие срок этап процесс количество сколько какой который '
+                  'когда почему зачем может можно нельзя нужно надо должен обязан следует является бывает частота часто время '
+                  'норма регламент документ положение стадия фаза ответ один двух трех каждый любой всего всегда другой иное '
+                  'также только работа ведение задача вопрос сведения информация данные материал результат список перечень '
+                  'состав содержание случай вид тип форма одном одним одной каким каком каких чем кому чему').split()
+
+
+def stem(word):
+    """Основа слова: отрезаем одно окончание («заявке», «заявки», «Заявками» → «заявк»)."""
+    word = word.lower().replace('ё', 'е')
+    for tail in ENDINGS:
+        if word.endswith(tail) and len(word) - len(tail) >= 3:
+            return word[:-len(tail)]
+    return word
+
+
+ABSTRACT = tuple(sorted({stem(w)[:4] for w in ABSTRACT_WORDS}))
+
+
+def stem(word):
+    """Основа слова: отрезаем одно окончание («заявке», «заявки», «Заявками» → «заявк»)."""
+    word = word.lower().replace('ё', 'е')
+    for tail in ENDINGS:
+        if word.endswith(tail) and len(word) - len(tail) >= 3:
+            return word[:-len(tail)]
+    return word
+
+
+def abstract(root):
+    """Слово о сути вопроса, а не о предмете: «приоритет», «критерий», «порядок»."""
+    return root.startswith(ABSTRACT)
+
+
+def shares_root(one, other):
+    """Есть пара слов с общим началом от четырёх букв: «заявк-» и «заяв-ок» — один предмет,
+    «приор-» и «риск» — разные."""
+    return any(len(os.path.commonprefix([a, b])) >= 4 or a == b for a in one for b in other)
+
+
+def subject_words(text):
+    """Предметные слова текста: основы без слов о сути вопроса и без глаголов, плюс аббревиатуры («ТКП»)."""
+    text = str(text or '')
+    words = {r for r in (stem(w) for w in WORD4.findall(text) if not VERB.search(w)) if not abstract(r)}
+    return words | set(SHORT.findall(text))
+
+
+def words_of(unit):
+    """Слова пункта — его текст, адрес и заголовки разделов: предмет пункта узнаём по ним, а не по словам модели."""
+    crumbs = ' '.join(' '.join(str(part) for part in crumb[:2]) for crumb in unit.crumbs)   # (номер, заголовок, тип)
+    text = ' '.join([unit.quote, unit.address, crumbs])
+    return {stem(w) for w in WORD4.findall(text)} | set(SHORT.findall(text))
+
+
+def names_the_unit(words, unit):
+    """Хотя бы одно из предметных слов действительно стоит в самом пункте."""
+    return not words or shares_root(words, words_of(unit))
+
 
 WRITER_SYSTEM = """Вы пишете ответ сотруднику по пунктам регламента.
 1. Используйте только сведения из приведённых фрагментов. Ничего не добавляйте от себя: ни сроков, ни правил, ни причин, ни пояснений.
@@ -90,6 +157,7 @@ class Decision:
     error: str = ''                             # почему модель не ответила (route = degraded)
     text: str = ''                              # связный ответ модели по пунктам; пустой — пункты дословно
     checks: dict = field(default_factory=dict)   # чем подтверждён текст: attempts · judge · issues
+    offsubject: list = field(default_factory=list)  # [(адрес, предмет пункта)] — пункты, отброшенные как «о другом»
     turns: int = 0                              # сколько было раундов «поиск → решение»
     replies: list = field(default_factory=list)  # сырые ответы модели — для журнала вызовов
     usage: Usage = field(default_factory=Usage)
@@ -105,6 +173,8 @@ class Agent:
         self.llm = llm
         self.max_clarifications = max_clarifications
         self.min_similarity = min_similarity
+        # сверка предмета выключается только для замера «A/B» (REGQA_SUBJECT_CHECK=0)
+        self.check_subject = os.environ.get('REGQA_SUBJECT_CHECK', '1') != '0'
 
     def ask(self, question, clarifications=()):
         """clarifications — [(вопрос агента, ответ сотрудника[, регламент])] из прошлых раундов."""
@@ -232,6 +302,8 @@ class Agent:
 
     def decide_answer(self, choice, decision, candidates, scope, question, history):
         chosen = self.resolve(choice.get('cites'), candidates)
+        if self.check_subject:
+            chosen = self.about_the_subject(decision, chosen, question)
         passing = [c for c in chosen if self.relevance(c[1], c[2]) >= self.floor(scope, self.min_similarity)]
         if not passing:
             decision.route = 'not_found'
@@ -248,6 +320,21 @@ class Agent:
         decision.text, decision.checks = self.compose(question, history, passing, decision)
         if decision.checks.get('judge') == 'offtopic':
             decision.route, decision.cites, decision.text = 'not_found', [], ''
+
+    def about_the_subject(self, decision, chosen, question):
+        """Пункт должен быть о том предмете, о котором спросили — и это проверяем по тексту самого пункта.
+
+        Правило о предмете написано в промпте, и оно не мешает модели взять пункт о приоритетах рисков
+        для вопроса о приоритетах заявки — а судья этого не замечает. Поэтому код сверяет сам: предметное
+        слово вопроса (без слов о сути — «сколько», «какой», «порядок» — и без глаголов) должно стоять
+        в тексте, адресе или заголовках пункта. Промпт при этом не трогаем: новые инструкции в нём
+        сдвигали поведение модели (банк 29 → 24).
+        """
+        wanted = subject_words(question)
+        kept = [cite for cite in chosen if names_the_unit(wanted, cite[0])]
+        decision.offsubject += [(cite[0].uid, 'не о том: %s' % ' / '.join(sorted(wanted)[:3]))
+                                for cite in chosen if cite not in kept]
+        return kept
 
     def resolve(self, wanted, candidates):
         """Адреса из ответа модели → фрагменты-кандидаты, в том же порядке.
@@ -361,7 +448,7 @@ class Agent:
         Провал — одна переписка с замечаниями. Не прошло ни одной редакции — текст пустой,
         и сотруднику показывают пункты дословно.
         """
-        issues, checks = [], {'attempts': 0, 'judge': 'passed', 'issues': []}
+        issues, checks = [], {'attempts': 0, 'judge': 'passed', 'issues': [], 'offsubject': list(decision.offsubject)}
         for attempt in range(2):
             lines = self.thread(question, history)
             lines.append('Фрагменты регламентов:')
@@ -387,9 +474,10 @@ class Agent:
                 if ruling.get('offtopic') is True:
                     checks['judge'] = 'offtopic'        # пункт о другом предмете: показывать его ответом нельзя
                     return '', checks
-                if ruling.get('supported') is not False:
+                if ruling.get('supported') is True:     # только явное «подтверждено»: невалидный вердикт — не пройден
                     return text, checks
-                issues = [str(x) for x in ruling.get('unsupported') or []][:5] or ['есть утверждения без опоры в пунктах']
+                issues = ([str(x) for x in ruling.get('unsupported') or []][:5]
+                          or ['есть утверждения без опоры в пунктах'])
                 checks['judge'] = 'rewritten'
             else:
                 issues = numbers + short if text else ['ответ не в JSON']

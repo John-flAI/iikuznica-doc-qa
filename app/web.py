@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from . import config
 from .agent import KNOWLEDGE
@@ -31,14 +31,40 @@ def build(with_vectors=True):
     return Service(load_engine(with_vectors=with_vectors), llm, Store(config.DB_PATH))
 
 
+QUESTION_LIMIT = 500        # знаков: слишком длинный вопрос не доходит до модели
+ANSWER_LIMIT = 2000         # знаков в ответе службы качества
+AUTHOR_LIMIT = 100          # знаков в имени автора
+
+
 class AskIn(BaseModel):
     session_id: str | None = None
-    text: str
+    text: str = Field(max_length=QUESTION_LIMIT)
+
+    @field_validator('text', mode='before')
+    @classmethod
+    def russian_length_error(cls, value):
+        if isinstance(value, str) and len(value) > QUESTION_LIMIT:
+            raise ValueError('Вопрос слишком длинный: не более %d знаков' % QUESTION_LIMIT)
+        return value
 
 
 class AnswerIn(BaseModel):
-    answer: str
-    author: str = 'Служба качества'
+    answer: str = Field(max_length=ANSWER_LIMIT)
+    author: str = Field('Служба качества', max_length=AUTHOR_LIMIT)
+
+    @field_validator('answer', mode='before')
+    @classmethod
+    def russian_answer_error(cls, value):
+        if isinstance(value, str) and len(value) > ANSWER_LIMIT:
+            raise ValueError('Ответ слишком длинный: не более %d знаков' % ANSWER_LIMIT)
+        return value
+
+    @field_validator('author', mode='before')
+    @classmethod
+    def russian_author_error(cls, value):
+        if isinstance(value, str) and len(value) > AUTHOR_LIMIT:
+            raise ValueError('Имя автора слишком длинное: не более %d знаков' % AUTHOR_LIMIT)
+        return value
 
 
 def create_app(service=None, with_vectors=True, ask_limit=None):
@@ -81,6 +107,10 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
 
     @app.post('/api/ask')
     def ask(body: AskIn, request: Request):
+        text = ' '.join((body.text or '').split())
+        if not text:
+            # пустой вопрос не тратит лимит: проверяем до списания квоты (сервис ответил бы тем же)
+            raise HTTPException(400, 'Вопрос пустой')
         # адрес — из заголовка прокси (стенд слушает только локальный порт): лимит бережёт бюджет модели
         allowed, wait = limiter.allow(address_key(client_ip(
             request.headers.get('x-forwarded-for'), request.client.host if request.client else None)))
@@ -88,7 +118,7 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
             raise HTTPException(429, LIMIT_NOTICE % (limiter.limit, -(-wait // 60)),
                                 headers={'Retry-After': str(wait)})
         try:
-            return svc(request).ask(body.session_id, body.text)
+            return svc(request).ask(body.session_id, text)
         except ValueError as e:
             raise HTTPException(400, str(e))
 

@@ -109,11 +109,13 @@ class LLMClient:
         """Повторы при перегрузке, затем запасная модель. Reply.attempts — сколько было попыток."""
         models = [self.model] + ([self.fallback_model] if self.fallback_model and self.fallback_model != self.model else [])
         reply, attempts, budget, lost = Reply(model=self.model), 0, max_tokens, [0, 0]
+        seconds = 0.0                          # серия целиком: неудачные попытки тоже шли по времени
         pauses = PAUSES_WITH_FALLBACK if len(models) > 1 else PAUSES
         for model in models:
             for pause in pauses:
                 reply, failed_retryable = self._call(model, messages, budget, temperature)
                 reply.attempts = attempts = attempts + 1
+                seconds += reply.seconds               # паузы между повторами не считаем — только сами попытки
                 retryable = failed_retryable
                 if reply.ok and reply.truncated and budget < max_tokens * 4:
                     budget *= 2                 # ответ оборван — повторяем с большим лимитом
@@ -127,7 +129,11 @@ class LLMClient:
             if reply.ok:
                 break
             reply.model, reply.ok, reply.error = model, False, reply.error or 'нет ответа'
+        if not reply.ok:
+            lost[0] -= reply.prompt_tokens     # последняя неудачная попытка уже в reply — из потерянных убираем
+            lost[1] -= reply.completion_tokens
         reply.retry_prompt_tokens, reply.retry_completion_tokens = lost
+        reply.seconds = seconds                # сумма всех попыток серии, а не только последней
         return reply
 
 

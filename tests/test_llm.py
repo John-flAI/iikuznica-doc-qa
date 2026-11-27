@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Клиент модели: разбор JSON, повторы при перегрузке, обрыв ответа, честный счёт токенов."""
+import json
 import unittest
 from unittest import mock
 
@@ -12,6 +13,45 @@ def overloaded():
 
 def fine(text='{"action": "answer"}', model='m'):
     return Reply(text=text, ok=True, model=model, prompt_tokens=100, completion_tokens=20), False
+
+
+def slow_overload(seconds):
+    return Reply(error='HTTP 429', prompt_tokens=100, completion_tokens=0, seconds=seconds), True
+
+
+def slow_fine(seconds, model='m'):
+    return Reply(text='{"action": "answer"}', ok=True, model=model, prompt_tokens=100, completion_tokens=20,
+                 seconds=seconds), False
+
+
+class FakeResponse:
+    """Ответ сервера без сети: read() отдаёт заготовленное тело."""
+
+    def __init__(self, body):
+        self.body = body
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def served(*bodies):
+    """Подменяет urllib.request.urlopen: сервер отвечает заготовленными телами по очереди."""
+    queue = [json.dumps(body).encode('utf-8') for body in bodies]
+
+    def urlopen(request, timeout=None):
+        return FakeResponse(queue.pop(0))
+    return urlopen
+
+
+def server_reply(text, finish_reason='stop'):
+    return {'model': 'm', 'choices': [{'message': {'content': text}, 'finish_reason': finish_reason}],
+            'usage': {'prompt_tokens': 100, 'completion_tokens': 20}}
 
 
 class ParseJson(unittest.TestCase):
@@ -54,6 +94,37 @@ class Client(unittest.TestCase):
         usage.add(reply, 'decide')
         self.assertEqual((usage.calls, usage.prompt_tokens, usage.completion_tokens), (1, 300, 20))
 
+    def test_seconds_cover_the_whole_retry_series(self):
+        """Считаем, сколько шли сами попытки; паузы между повторами в секунды не включаем."""
+        client = self.client([slow_overload(1.5), slow_overload(2), slow_fine(3)])
+        with mock.patch('app.llm.time.sleep'):
+            reply = client.chat([])
+        self.assertTrue(reply.ok)
+        self.assertEqual(reply.seconds, 6.5)
+        usage = Usage()
+        usage.add(reply, 'decide')
+        self.assertEqual(usage.seconds, 6.5)
+
+    def test_seconds_include_the_fallback_model_attempts(self):
+        client = self.client([slow_overload(1)] * len(PAUSES_WITH_FALLBACK) + [slow_fine(2, model='reserve')],
+                             fallback_model='reserve')
+        with mock.patch('app.llm.time.sleep'):
+            reply = client.chat([])
+        self.assertEqual((reply.ok, reply.model), (True, 'reserve'))
+        self.assertEqual(reply.seconds, len(PAUSES_WITH_FALLBACK) + 2)
+
+    def test_total_failure_counts_tokens_and_seconds_once(self):
+        """Серия кончилась отказом: последняя попытка лежит и в reply, и в потерянных — считаем её один раз."""
+        attempts = 2 * len(PAUSES_WITH_FALLBACK)
+        client = self.client([slow_overload(1)] * attempts, fallback_model='reserve')
+        with mock.patch('app.llm.time.sleep'):
+            reply = client.chat([])
+        self.assertFalse(reply.ok)
+        usage = Usage()
+        usage.add(reply, 'decide')
+        self.assertEqual((usage.prompt_tokens, usage.completion_tokens, usage.seconds),
+                         (attempts * 100, 0, float(attempts)))
+
     def test_fallback_model_takes_over_when_main_is_overloaded(self):
         client = self.client([overloaded()] * len(PAUSES_WITH_FALLBACK) + [fine(model='reserve')], fallback_model='reserve')
         with mock.patch('app.llm.time.sleep'):
@@ -92,6 +163,32 @@ class Client(unittest.TestCase):
     def test_thinking_is_switched_off_for_both_kinds_of_server(self):
         client = LLMClient('http://server/v1', 'm')
         self.assertEqual(client.extra_body, {'reasoning_effort': 'none', 'thinking': {'type': 'disabled'}})
+
+
+class ServerReply(unittest.TestCase):
+    """Разбор сырого ответа сервера: finish_reason «length» виден только на настоящем теле ответа."""
+
+    def test_answer_cut_by_length_limit_is_marked_truncated(self):
+        client = LLMClient('http://server/v1', 'm')
+        body = server_reply('{"action": "ans')
+        body['choices'][0]['finish_reason'] = 'length'
+        with mock.patch('urllib.request.urlopen', served(body)):
+            reply, _ = client._call('m', [], 600, 0)
+        self.assertTrue(reply.truncated)
+        self.assertEqual((reply.ok, reply.prompt_tokens, reply.completion_tokens), (True, 100, 20))
+
+    def test_truncated_server_answer_is_retried_with_a_bigger_budget(self):
+        client = LLMClient('http://server/v1', 'main')
+        cut = server_reply('{"action": "ans')
+        cut['choices'][0]['finish_reason'] = 'length'
+        with mock.patch('urllib.request.urlopen', served(cut, server_reply('{"action": "answer"}'))), \
+                mock.patch('app.llm.time.sleep'):
+            reply = client.chat([], max_tokens=600)
+        self.assertTrue(reply.ok)
+        self.assertFalse(reply.truncated)
+        usage = Usage()
+        usage.add(reply, 'decide')
+        self.assertEqual((usage.prompt_tokens, usage.completion_tokens), (200, 40))   # оборванная попытка не потеряна
 
 
 if __name__ == '__main__':

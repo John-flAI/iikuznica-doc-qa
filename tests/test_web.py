@@ -149,10 +149,52 @@ class AskLimit(unittest.TestCase):
         declined = client.post('/api/ask', json={'text': 'привет'}, headers=self.address)
         self.assertEqual(declined.status_code, 429)                          # лимит — на запрос, а не на вызов модели
 
+    def test_empty_question_does_not_spend_the_limit(self):
+        client = self.limited(2)
+        empty = client.post('/api/ask', json={'text': '   '}, headers=self.address)
+        self.assertEqual(empty.status_code, 400)
+        self.assertEqual(empty.json()['detail'], 'Вопрос пустой')
+        self.assertEqual([client.post('/api/ask', json=self.question, headers=self.address).status_code
+                          for _ in range(2)], [200, 200])       # оба вопроса прошли — пустой не потратил квоту
+        self.assertEqual(client.post('/api/ask', json=self.question, headers=self.address).status_code, 429)
+
     def test_zero_disables_the_limit(self):
         client = self.limited(0)
         self.assertEqual([client.post('/api/ask', json=self.question, headers=self.address).status_code
                           for _ in range(25)], [200] * 25)
+
+
+class FieldLimits(unittest.TestCase):
+    """Поля запросов ограничены по длине: слишком длинные отклоняет валидация — до службы и модели."""
+
+    def test_too_long_question_is_declined_before_the_model(self):
+        calls = []
+
+        def decide(messages):
+            calls.append(1)
+            return ok('{"kind": "question"}')
+        client = client_for(decide)
+        reply = client.post('/api/ask', json={'text': 'в' * 501})
+        self.assertEqual(reply.status_code, 422)
+        self.assertIn('не более 500 знаков', reply.text)      # понятный русский текст ошибки
+        self.assertEqual(calls, [])                           # до модели вопрос не дошёл
+
+    def test_question_of_exactly_500_characters_passes(self):
+        client = client_for(lambda m: ok('{"kind": "question"}'))
+        self.assertEqual(client.post('/api/ask', json={'text': 'в' * 500}).status_code, 200)
+
+    def test_too_long_answer_and_author_are_declined(self):
+        client = client_for(lambda m: ok('{"action": "not_found"}'))
+        ticket = client.post('/api/ask', json={'text': 'Как оформить командировку сотрудника?'}).json()['ticket']['id']
+        too_long = client.post('/api/tickets/%d/answer' % ticket, json={'answer': 'а' * 2001})
+        self.assertEqual(too_long.status_code, 422)
+        self.assertIn('не более 2000 знаков', too_long.text)
+        too_long_name = client.post('/api/tickets/%d/answer' % ticket,
+                                    json={'answer': 'Ответ.', 'author': 'и' * 101})
+        self.assertEqual(too_long_name.status_code, 422)
+        self.assertIn('не более 100 знаков', too_long_name.text)
+        self.assertEqual(client.post('/api/tickets/%d/answer' % ticket,          # запрос не испорчен отказами
+                                     json={'answer': 'Командировка оформляется заявкой в ERP.'}).status_code, 200)
 
 
 if __name__ == '__main__':

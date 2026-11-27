@@ -11,3 +11,5 @@ __pycache__/
 .venv/
 node_modules/
 data/index/
+*.db-shm
+*.db-wal

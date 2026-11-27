@@ -5,7 +5,7 @@ import re
 import unittest
 from pathlib import Path
 
-from app.agent import GIVE_UP_CHECK, Agent
+from app.agent import GIVE_UP_CHECK, Agent, subject_words
 from app.engine import load_engine
 from app.llm import Reply
 
@@ -83,12 +83,14 @@ class AgentLogic(unittest.TestCase):
         self.assertEqual(self.agent(answer(uid), min_similarity=1.01).ask(DEADLINE).route, 'not_found')
 
     def test_answer_from_two_regulations_becomes_a_question(self):
-        uids = self.one_per_document(RISKS)
-        self.assertGreaterEqual(len(uids), 2)
-        decision = self.agent(answer(*uids.values())).ask(RISKS)
-        self.assertEqual(decision.route, 'clarify')
-        self.assertGreaterEqual(len(decision.option_docs), 2)           # не менее двух регламентов
-        self.assertTrue(set(decision.option_docs.values()) <= set(uids))
+        """Один и тот же предмет регулируют два регламента — агент не выбирает сам, а спрашивает, какой его.
+        (Похожий по словам пункт о план-графике сюда больше не попадает: проверка предмета его отбрасывает.)"""
+        first, second = self.engine.corpus.get('f2:18.2~11'), self.engine.corpus.get('f4:15.3~3')
+        agent = self.agent(answer(first.uid, second.uid))
+        agent.candidates = lambda query, scope=None: {u.uid: (u, 1.0, 1.0) for u in (first, second)}
+        decision = agent.ask(RISKS)
+        self.assertEqual((decision.route, decision.offsubject), ('clarify', []))
+        self.assertEqual(sorted(decision.option_docs.values()), ['f2', 'f4'])
         for option in decision.options:
             self.assertIn(option, decision.option_docs)
 
@@ -317,6 +319,52 @@ class AgentLogic(unittest.TestCase):
         decision = Agent(self.engine, llm).ask(DEADLINE)
         self.assertEqual((decision.route, decision.text, decision.checks['judge']), ('answer', '', 'unavailable'))
 
+    def test_unreadable_judge_verdict_is_not_a_pass(self):
+        """Невалидный вердикт судьи — не «пройдено»: одна переписка, затем пункты дословно."""
+        for broken in ('{"supported": true', '', 'Подтверждаю без ошибок.'):
+            with self.subTest(verdict=broken):
+                decision = self.flowing(answer('f3:5.1'), 'Ответ по регламенту.', ok(broken)).ask(DEADLINE)
+                self.assertEqual((decision.route, decision.text, decision.checks['judge']), ('answer', '', 'failed'))
+                self.assertEqual((decision.usage.by_step['judge']['calls'], decision.checks['attempts']), (2, 2))
 
-if __name__ == '__main__':
-    unittest.main()
+    def test_unreadable_verdict_then_a_clear_one(self):
+        """Первая проверка не разобралась — текст переписан, вторая явно подтвердила: идёт вторая редакция."""
+        writer = flow(answer('f3:5.1'), ['Первая редакция.', 'Вторая редакция.'])
+        verdicts = iter([ok('{"supported": true'), ok('{"supported": true, "unsupported": []}')])
+
+        def chat(messages, max_tokens=600, temperature=0):
+            return next(verdicts) if JUDGE_MARK in messages[0]['content'] else writer(messages, max_tokens, temperature)
+        llm = FakeLLM(ok('{}'))
+        llm.chat = chat
+        decision = Agent(self.engine, llm).ask(DEADLINE)
+        self.assertEqual((decision.route, decision.text, decision.checks['judge']), ('answer', 'Вторая редакция.', 'rewritten'))
+
+    def test_clause_about_risks_is_not_an_answer_about_requests(self):
+        """C04 банка: пункт о приоритетах рисков не отвечает на вопрос о приоритетах заявок — и судья
+        этого не замечает. Предметное слово вопроса проверяем по тексту самого пункта."""
+        unit = self.engine.corpus.get('f5:24.7.3~2')
+        self.assertIn('приоритет 2', unit.quote)
+
+        def agent():
+            agent = self.agent(answer(unit.uid))
+            agent.candidates = lambda query, scope=None: {unit.uid: (unit, 1.0, 1.0)}
+            return agent
+        decision = agent().ask('По каким критериям заявке присваивается приоритет 2?')
+        self.assertEqual((decision.route, decision.text, [d[0] for d in decision.offsubject]), ('not_found', '', [unit.uid]))
+        decision = agent().ask('По каким критериям риск получает приоритет 2?')
+        self.assertEqual((decision.route, decision.offsubject), ('answer', []))
+
+    def test_subject_words_skip_question_words_and_verbs(self):
+        """Предметные слова — только о предмете: «сколько», «какой», «надо», «одном» и глаголы не в счёт."""
+        self.assertEqual(subject_words('Сколько заявок может висеть на одном архитекторе?'), {'заявок', 'архитектор'})
+        self.assertEqual(subject_words('Как часто надо обновлять реестр рисков?'), {'реестр', 'риск'})
+        self.assertEqual(subject_words('Можно ли работать без сметы?'), {'смет'})
+        self.assertEqual(subject_words('Кто готовит ТКП, если заказчик уже выбрал продукт?'), {'заказчик', 'продукт', 'ТКП'})
+
+    def test_question_without_subject_words_is_not_blocked(self):
+        """В вопросе нет предметных слов — проверка не мешает отвечать."""
+        unit = self.engine.corpus.get('f3:5.2.3~3')
+        agent = self.agent(answer(unit.uid))
+        agent.candidates = lambda query, scope=None: {unit.uid: (unit, 1.0, 1.0)}
+        decision = agent.ask('Сколько это делается?')
+        self.assertEqual((decision.route, decision.offsubject, decision.checks['offsubject']), ('answer', [], []))
