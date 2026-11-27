@@ -93,9 +93,13 @@ function ticketBlock(message) {
       event.target.disabled = true;
       const from = event.target.getBoundingClientRect();     // кнопку заменит «Отправлено» — запоминаем, где она была
       try {
-        await api('/api/tickets/' + ticket.id + '/send', { method: 'POST' });
+        const result = await api('/api/tickets/' + ticket.id + '/send', { method: 'POST' });
         ticketMap[ticket.id] = { status: 'open' };
-        row.replaceWith(el('div', 'sent', 'Отправлено. Ответ службы качества появится в этом чате.'));
+        const sent = el('div', 'sent', 'Отправлено. Ответ службы качества появится в этом чате.');
+        if (result && result.letter_delivered === true) sent.append(el('div', 'sent-mail', 'Письмо отправлено в службу качества'));   // только когда сервер подтвердил доставку
+        row.replaceWith(sent);
+        if (!demoOn()) applyDemo(true, true);   // письмо уходит в ящик службы качества — тестовые инструменты показываются, колонна откроется на ящике
+        loadMail();                             // не ждём: новое письмо должно быть в списке, когда линия долетит
         await flyToPanel(from);
         openPanel('qc');
       } catch (error) {
@@ -166,9 +170,11 @@ function show(entry) {
     if (meta.seconds) facts.push(meta.seconds + ' с');
     if (meta.clarifications) facts.push('уточнений: ' + meta.clarifications);
     if (meta.route === 'smalltalk') facts.push((meta.models || []).length ? 'отвечено моделью' : 'без обращения к модели');
-    node.append(el('div', 'meta', facts.join(' · ')));
+    node.append(el('div', 'meta', facts.join(' · ')), copyButton(meta.text));   // «Копировать» видна только в вариантах, где она предусмотрена (CSS)
     messagesEl.append(node);
   }
+  const last = messagesEl.lastElementChild;                    // индекс сообщения — для каскадной механики
+  if (last && last.classList.contains('msg')) last.style.setProperty('--i', String(messagesEl.children.length - 1));
   scrollDown();
 }
 
@@ -209,6 +215,9 @@ function openPanel(name) {
 }
 
 function showTab(name) {
+  // тестовая вкладка (data-demo в разметке) пока инструменты скрыты не открывается — показываем документы
+  const demoTab = app.querySelector('.tab[data-tab="' + name + '"]');
+  if (demoTab && demoTab.hasAttribute('data-demo') && !panel.classList.contains('demo-on')) name = 'docs';
   tab = name;
   app.querySelectorAll('.tab').forEach((node) => node.classList.toggle('active', node.dataset.tab === name));
   app.querySelectorAll('.tab-body').forEach((node) => node.classList.toggle('active', node.id === 'tab-' + name));
@@ -225,13 +234,24 @@ app.querySelectorAll('.tab[data-tab]').forEach((node) => node.addEventListener('
 /* золотая линия: письмо уходит из чата к службе качества (панель открыта — в её заголовок,
    закрыта — к рельсе справа, откуда панель потом открывается) */
 function flyToPanel(a) {
+  const b = panel.getBoundingClientRect();
+  const shown = b.width > 0 && !app.classList.contains('panel-closed');
+  const x1 = a.right, y1 = a.top + a.height / 2;
+  const x2 = shown ? b.left + 70 : $('#flight').clientWidth - 22, y2 = shown ? b.top + 28 : Math.round($('#flight').clientHeight / 2);
+  return fly(x1, y1, x2, y2);
+}
+
+/* ответ службы качества возвращается той же линией: из колонны — в ленту чата, к месту, где появится сообщение */
+function flyToChat(a) {
+  const m = messagesEl.getBoundingClientRect();
+  return fly(a.left, a.top + a.height / 2, m.right - Math.min(m.width * .55, 420), m.bottom - 84);
+}
+
+function fly(x1, y1, x2, y2) {
   return new Promise((resolve) => {
-    const svg = $('#flight'), path = $('#flight-path'), dot = $('#fly-dot');
-    const b = panel.getBoundingClientRect();
-    const shown = b.width > 0 && !app.classList.contains('panel-closed');
-    const x1 = a.right, y1 = a.top + a.height / 2;
-    const x2 = shown ? b.left + 70 : svg.clientWidth - 22, y2 = shown ? b.top + 28 : Math.round(svg.clientHeight / 2);
-    path.setAttribute('d', `M ${x1} ${y1} C ${x1 + 160} ${y1}, ${x2 - 160} ${y2}, ${x2} ${y2}`);
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return resolve();   // без движения линия не летит
+    const path = $('#flight-path'), dot = $('#fly-dot'), k = x2 >= x1 ? 160 : -160;
+    path.setAttribute('d', `M ${x1} ${y1} C ${x1 + k} ${y1}, ${x2 - k} ${y2}, ${x2} ${y2}`);
     const length = path.getTotalLength();
     path.style.strokeDasharray = length;
     path.style.strokeDashoffset = length;
@@ -282,10 +302,16 @@ function selectTicket(id) {
     form.append(author, answer);
     form.append(button('primary', 'Отправить ответ сотруднику', async (event) => {
       event.target.disabled = true;
+      const from = event.target.getBoundingClientRect();   // кнопку заменит «Ответ отправлен» — запоминаем, где она была
       try {
-        await api('/api/tickets/' + ticket.id + '/answer', { method: 'POST', body: JSON.stringify({ answer: answer.value, author: author.value }) });
-        form.replaceWith(el('div', 'qc-done', 'Ответ отправлен сотруднику и добавлен в базу знаний: теперь агент ответит на этот вопрос сам.'));
+        const result = await api('/api/tickets/' + ticket.id + '/answer', { method: 'POST', body: JSON.stringify({ answer: answer.value, author: author.value }) });
+        const done = el('div', 'qc-done', 'Ответ отправлен сотруднику и добавлен в базу знаний: теперь агент ответит на этот вопрос сам.');
+        if (result && result.letter_delivered === true) done.append(el('div', 'sent-mail', 'Письма доставлены — службе качества и сотруднику'));
+        form.replaceWith(done);
         await loadTickets();
+        await loadMail();                 // в ящике службы качества появляется исходящее «Ответ службы качества»
+        busy = true;
+        try { await flyToChat(from); } finally { busy = false; }   // золотая линия возвращается в чат; опрос сессии ждёт её
         await tick();                     // ответ службы сразу появляется в чате — без ожидания опроса сессии
       } catch (error) {
         form.append(el('div', 'notice', 'Не получилось: ' + error.message));
@@ -476,6 +502,8 @@ function renderChats(renaming) {
       });
       chip.textContent = chat.name;
       chip.addEventListener('contextmenu', (event) => openChatMenu(event, chat));
+      chip.addEventListener('mousedown', (event) => { if (event.button === 1) event.preventDefault(); });   // колёсико: без автопрокрутки страницы
+      chip.addEventListener('auxclick', (event) => { if (event.button === 1 && !busy) closeChat(chat); });   // закрыть чат, как вкладку в браузере
       box.append(chip);
     }
   });
@@ -505,21 +533,373 @@ function closeChatMenu() {
   if (menu) menu.remove();
 }
 
-/* ---- темы оформления: Сталь и Графит (html[data-theme]), выбор в localStorage ---- */
+/* ---- тема (Графит = тёмная, Сталь = светлая) и оформление (Аврора, Слэк): две кнопки-переключателя
+   в доке поверх шапки, выбор в localStorage. Имена атрибутов прежние: html[data-theme], html[data-motion].
+   В каждой кнопке лежат оба значка; видимый выбирает CSS по тем же атрибутам (style.css, .dock-btn .half).
+   Остальные 8 вариантов витрины — в архиве для статьи: sprint/_out/дизайн/36-statya/ ---- */
 
-const THEME_LIST = ['steel', 'graphite'];
+const THEME_LIST = ['steel', 'graphite'], THEME_WORDS = { steel: ['светлая', 'светлой'], graphite: ['тёмная', 'тёмной'] };   // именительный, творительный
+const SKIN_LIST = ['v-aurora', 'v-slack'], SKIN_WORDS = { 'v-aurora': 'Аврора', 'v-slack': 'Слэк' };
+const root = document.documentElement, themeBtn = $('#theme-toggle'), skinBtn = $('#skin-toggle');
+const nextIn = (list, name) => list[(list.indexOf(name) + 1) % list.length];
+const hit = (node, selector) => (node instanceof Element ? node.closest(selector) : null);
 
 function applyTheme(name) {
-  if (!THEME_LIST.includes(name)) name = 'steel';   // сохранённое имя устарело — берём Сталь
-  document.documentElement.dataset.theme = name;
+  if (!THEME_LIST.includes(name)) name = 'graphite';   // сохранённое имя устарело — берём тёмную
+  root.dataset.theme = name;
   localStorage.setItem('regqa.theme', name);
-  document.querySelectorAll('.theme-tabs .theme-chip').forEach((b) => b.classList.toggle('active', b.dataset.theme === name));
+  themeBtn.setAttribute('aria-checked', String(name === 'graphite'));
+  themeBtn.dataset.tip = 'Тема: ' + THEME_WORDS[name][0] + ' · нажмите — станет ' + THEME_WORDS[nextIn(THEME_LIST, name)][1];
 }
 
-document.querySelectorAll('.theme-tabs .theme-chip').forEach((b) => b.addEventListener('click', () => applyTheme(b.dataset.theme)));
-applyTheme(localStorage.getItem('regqa.theme') || 'steel');
+function applySkin(name) {
+  if (!SKIN_LIST.includes(name)) name = 'v-aurora';    // сохранённое имя устарело (была витрина вариантов) — берём Аврору
+  root.dataset.motion = name;
+  localStorage.setItem('regqa.motion', name);
+  const next = SKIN_WORDS[nextIn(SKIN_LIST, name)];
+  skinBtn.dataset.tip = 'Оформление: ' + SKIN_WORDS[name] + ' · нажмите — станет ' + next;
+  skinBtn.setAttribute('aria-label', 'Оформление: ' + SKIN_WORDS[name] + '. Переключить на ' + next);
+  // переключили оформление — сообщения входят заново: механику видно сразу, не нужно ждать нового ответа
+  messagesEl.classList.add('replay');
+  void messagesEl.offsetWidth;
+  messagesEl.classList.remove('replay');
+}
 
-/* ---- модели на выбор: кнопки-переключатели на вкладке «Настройки», выбор хранится в сессии ---- */
+themeBtn.addEventListener('click', () => applyTheme(nextIn(THEME_LIST, root.dataset.theme)));
+skinBtn.addEventListener('click', () => applySkin(nextIn(SKIN_LIST, root.dataset.motion)));
+applyTheme(localStorage.getItem('regqa.theme') || 'graphite');
+applySkin(localStorage.getItem('regqa.motion') || 'v-aurora');
+
+/* ---- страница входа (демонстрационная): почта и пароль заполнены заранее и не меняются, «Войти» открывает
+   стенд, «Выход» в доке возвращает сюда. Отметка входа — regqa.login (ключ контракта почты, _out/почта_отчёт.md);
+   «Войти» вызывает POST /api/login — сервер ничего не проверяет. Прочая ошибка сервера показывается здесь же
+   и в стенд не пускает; «маршрута нет» (404/405 — сервер без почты) оставляет вход просто оформлением, как было.
+   Адреса — из /api/health → accounts (setupMail), до ответа — заглушка ACCOUNTS ---- */
+
+const ACCOUNTS = {
+  client: { name: 'Сотрудник', email: 'client1@docii.aized.ru' },
+  quality: { name: 'Служба качества', email: 's.kachestva@docii.aized.ru' },
+  agent: { name: 'ДокИИ', email: 'agent@docii.aized.ru' },
+};
+let accounts = ACCOUNTS;
+function paintGate() {
+  $('#gate-email').value = accounts.client.email;
+  $('#gate-pass').value = 'docii-demo';                // точки-заглушка: у стенда пароля нет
+}
+paintGate();
+
+function showGate(on) {
+  root.classList.toggle('gate-first', on);             // html.gate-first прячет стенд и показывает страницу входа (CSS)
+  (on ? $('#gate-enter') : input).focus();
+}
+
+if (localStorage.getItem('regqa.entered')) localStorage.setItem('regqa.login', 'client');   // вошёл до почты — остаётся в стенде
+$('#gate-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const enter = $('#gate-enter'), errorBox = $('#gate-error');
+  enter.disabled = true;
+  errorBox.hidden = true;
+  try {
+    await api('/api/login', { method: 'POST', body: JSON.stringify({ role: 'client' }) });
+  } catch (error) {
+    if (error.status !== 404 && error.status !== 405) {
+      errorBox.textContent = 'Не получилось войти: ' + error.message;
+      errorBox.hidden = false;
+      enter.disabled = false;
+      return;
+    }
+  }
+  localStorage.setItem('regqa.login', 'client');
+  enter.disabled = false;
+  showGate(false);
+});
+$('#exit-btn').addEventListener('click', () => {       // «Выйти»: чаты и история (regqa.chats, regqa.sid) остаются
+  hideTip();
+  localStorage.removeItem('regqa.login');
+  showGate(true);
+});
+if (root.classList.contains('gate-first')) showGate(true);
+
+/* ---- тестовые инструменты стенда — служба качества, статистика, настройки: это не продукт, а показ «как это
+   работает». По умолчанию скрыты, в правой колонне остаётся «Документы»; третья кнопка дока их показывает,
+   выбор в localStorage. Скрытие — только оформление (style.css: .panel без demo-on прячет вкладки с data-demo),
+   логика вкладок не тронута. Запросов к API не делает ---- */
+
+const DEMO_TABS = ['qc', 'stats', 'settings'], demoBtn = $('#demo-toggle');
+const demoOn = () => panel.classList.contains('demo-on');
+function applyDemo(on, remember) {
+  panel.classList.toggle('demo-on', on);
+  if (remember) localStorage.setItem('regqa.demo', on ? '1' : '0');
+  demoBtn.setAttribute('aria-checked', String(on));
+  demoBtn.dataset.tip = on ? 'Тестовые инструменты: показаны · нажмите — скрыть'
+                           : 'Тестовые инструменты: скрыты · нажмите — показать службу качества, статистику и настройки';
+  demoBtn.setAttribute('aria-label', 'Тестовые инструменты: ' + (on ? 'показаны. Скрыть' : 'скрыты. Показать'));
+  $('#rail').dataset.tip = on ? 'Открыть: служба качества, документы, статистика, настройки' : 'Открыть документы';
+  if (!on && DEMO_TABS.includes(tab)) showTab('docs');   // скрыли инструменты, стоя на одном, — остаёмся в документах
+}
+demoBtn.addEventListener('click', () => { applyDemo(!demoOn(), true); loadMail(); });   // показали инструменты — заодно обновляем ящик службы качества
+applyDemo(mode === 'full' ? localStorage.getItem('regqa.demo') === '1' : true, false);   // без сохранённого выбора — скрыты; экраны /qc и /analytics — сами инструменты
+if (mode === 'full') showTab('docs');
+
+/* ---- вкладка «Настройки» (тестовый инструмент): выбор модели кнопками-переключателями. Список #model-switch в
+   шапке заполняет исполнитель (setupModels), он же хранит выбор и ходит на сервер; список скрыт оформлением,
+   а кнопки только ставят в нём значение и вызывают его же событие change — логика запросов не тронута ---- */
+
+const modelPick = $('#model-switch'), modelChips = $('#model-chips');
+function paintModelChips() {
+  const options = Array.from(modelPick.options);
+  $('#model-empty').hidden = options.length > 0;
+  modelChips.replaceChildren(...options.map((option) => {
+    const chip = button('model-chip' + (option.selected ? ' active' : ''), option.text, () => {
+      if (option.selected) return;
+      modelPick.value = option.value;
+      modelPick.dispatchEvent(new Event('change'));
+      paintModelChips();
+      setTimeout(paintModelChips, 1500);   // сервер не переключил — список вернёт прежнюю модель, кнопки догоняют
+    });
+    chip.dataset.model = option.value;
+    chip.setAttribute('role', 'radio');
+    chip.setAttribute('aria-checked', String(option.selected));
+    return chip;
+  }));
+}
+app.querySelectorAll('.tab[data-tab="settings"]').forEach((node) => node.addEventListener('click', paintModelChips));
+
+/* ---- почта (имитация): ящик службы качества — на одноимённой вкладке (письмо + под ним прежняя карточка запроса
+   с формой ответа), ящик сотрудника — на вкладке «Почта» и по кнопке в шапке. Контракт — _out/почта_отчёт.md:
+   GET /api/letters?role=quality|client (список), GET /api/letter/{id} (целиком). Здесь только чтение: список, письмо
+   и счётчик непрочитанных (прочитанное помним в браузере, regqa.read). На сервере без почты (нет accounts в health,
+   либо 404/405) — html.no-mail: «Почта» спрятана, ящик службы качества остаётся прежним списком запросов ---- */
+
+const MAIL = {
+  quality: { list: '#qc-mail-list', detail: '#qc-letter', name: '#qc-mail-name', addr: '#qc-mail-addr',
+             empty: 'Писем пока нет. Здесь появится письмо, когда сотрудник отправит запрос из чата.' },
+  client: { list: '#mail-list', detail: '#mail-detail', name: '#mail-name', addr: '#mail-addr',
+            empty: 'Писем пока нет. Сюда приходят письма агента: что вопрос передан в службу качества и что служба ответила.' },
+};
+const KIND_WORDS = { question: 'вопрос', notice: 'уведомление', reply: 'ответ', answer: 'ответ' };
+const boxes = { quality: null, client: null };        // письма ящиков из API; null — ещё не получены
+let mailOn = true, mailBusy = false, openedLetter = null;   // { role, id } — открытое письмо, подсвечено в списке
+
+const readMarks = () => { try { return JSON.parse(localStorage.getItem('regqa.read') || '{}'); } catch (error) { return {}; } };
+const isRead = (role, id) => (readMarks()[role] || []).includes(id);
+const unreadIn = (role) => (boxes[role] || []).filter((letter) => !letter.outgoing && !isRead(role, letter.id)).length;   // непрочитанные — только входящие
+const who = (address) => { const found = Object.values(accounts).find((account) => account.email === address); return found ? found.name : address; };
+const when = (iso) => { const date = new Date(iso); return isNaN(date) ? '' : date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+
+function setBadge(node, count) {
+  node.textContent = count > 0 ? String(count) : '';   // ноль не пишем: имя вкладки не должно звучать «Почта 0»
+  node.hidden = !(count > 0);
+}
+
+function letterRow(letter, role) {
+  const current = openedLetter && openedLetter.role === role && openedLetter.id === letter.id;
+  const row = button('letter' + (!letter.outgoing && !isRead(role, letter.id) ? ' unread' : '') + (current ? ' active' : ''), '', () => openLetter(letter, role));
+  row.append(el('span', 'dot'), el('span', 'subj', letter.subject), el('span', 'when', when(letter.created)),
+             el('span', 'route', (letter.outgoing ? '→ ' : '') + who(letter.outgoing ? letter.to : letter.from) +
+                               ' · ' + (letter.outgoing ? 'отправлено' : 'входящее') + (KIND_WORDS[letter.kind] ? ' · ' + KIND_WORDS[letter.kind] : '')));
+  return row;
+}
+
+function paintMail() {
+  if (!mailOn) return;
+  setBadge($('#qc-badge'), unreadIn('quality'));
+  setBadge($('#mail-badge'), unreadIn('client'));
+  setBadge($('#mail-tab-badge'), unreadIn('client'));
+  Object.entries(MAIL).forEach(([role, parts]) => {
+    $(parts.name).textContent = accounts[role].name;
+    $(parts.addr).textContent = accounts[role].email;
+    const letters = boxes[role];
+    $(parts.list).replaceChildren(...(letters && letters.length ? letters.map((letter) => letterRow(letter, role)) : [el('div', 'empty', parts.empty)]));
+  });
+}
+
+/* список обоих ящиков; ящик службы качества спрашиваем, только когда его видно (инструменты показаны или вкладка открыта) */
+async function loadMail() {
+  if (!mailOn || mailBusy) return;
+  mailBusy = true;
+  const roles = ['client'];
+  if (demoOn() || tab === 'qc') roles.push('quality');
+  try {
+    const lists = await Promise.all(roles.map((role) => api('/api/letters?role=' + role)));
+    roles.forEach((role, i) => { boxes[role] = lists[i]; });
+  } catch (error) {
+    if (error.status === 404 || error.status === 405) { mailOff(); return; }   // сервер без почты
+  } finally { mailBusy = false; }
+  paintMail();
+}
+function mailOff() {
+  mailOn = false;
+  root.classList.add('no-mail');     // CSS: прятать «Почту», в ящике службы качества показать прежний список запросов
+}
+
+async function openLetter(letter, role) {
+  openedLetter = { role, id: letter.id };
+  const marks = readMarks();
+  marks[role] = [...new Set([...(marks[role] || []), letter.id])].slice(-300);
+  localStorage.setItem('regqa.read', JSON.stringify(marks));
+  const box = $(MAIL[role].detail);
+  box.replaceChildren(el('div', 'empty', 'Открываю письмо…'));
+  if (role === 'quality') $('#qc-detail').replaceChildren();   // под письмом — карточка запроса; прежнюю убираем, пока письмо идёт
+  paintMail();
+  try {
+    const full = await api('/api/letter/' + letter.id);
+    const card = el('article', 'letter-full');
+    card.append(el('h3', '', full.subject),
+                el('div', 'letter-meta', 'От: ' + who(full.from) + ' · ' + full.from + (full.cc ? '   Копия: ' + full.cc : '')),
+                el('div', 'letter-meta', 'Кому: ' + who(full.to) + ' · ' + full.to + '   ' + when(full.created)),
+                el('pre', 'letter-text', full.text));
+    box.replaceChildren(card);
+    if (role === 'quality' && full.ticket_id) selectTicket(full.ticket_id);   // форма ответа — существующая карточка запроса
+    box.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  } catch (error) {
+    box.replaceChildren(el('div', 'notice', 'Не получилось открыть письмо: ' + error.message));
+  }
+}
+
+async function setupMail() {
+  try {
+    const health = await api('/api/health');
+    if (health.accounts) accounts = { ...ACCOUNTS, ...health.accounts };
+    else mailOff();
+  } catch (error) { mailOff(); }
+  paintGate();
+  if (!mailOn) return;
+  $('#mail-open').hidden = false;                                       // сервер с почтой: показываем «Почту» сотрудника
+  app.querySelector('.tab[data-tab="mail"]').hidden = false;
+  paintMail();
+  loadMail();
+}
+$('#mail-open').addEventListener('click', () => openPanel('mail'));
+app.querySelectorAll('.tab[data-tab="qc"], .tab[data-tab="mail"]').forEach((node) => node.addEventListener('click', loadMail));
+setupMail();
+setInterval(() => { if (!document.hidden) loadMail(); }, 4000);          // новые письма и счётчики непрочитанных
+
+/* ---- подсказки при наведении: одна всплывашка на все кнопки. Текст — из data-tip, иначе из HINTS,
+   иначе из старого title. Запросов к API не делает ---- */
+
+const HINTS = [
+  ['#gate-enter', 'Открыть стенд — данные заполнены заранее'],
+  ['#ask-send', 'Отправить вопрос · Enter'],
+  ['.examples-drop summary', 'Готовые вопросы для проверки стенда'],
+  ['.examples button', 'Задать этот вопрос'],
+  ['.chat-tabs .ghost', 'Новый диалог с чистой историей'],
+  ['.chat-chip', 'Клик колёсиком — закрыть чат, правый клик — переименовать или закрыть'],
+  ['#panel-collapse', 'Свернуть колонну'],
+  ['#panel-close', 'Свернуть колонну'],
+  ['.tab[data-tab="docs"]', 'Открыть документы'],
+  ['.tab[data-tab="mail"]', 'Почта сотрудника: письма от агента'],
+  ['.tab[data-tab="qc"]', 'Тестовый инструмент: ящик службы качества — здесь отвечают сотруднику'],
+  ['.letter', 'Открыть письмо'],
+  ['.tab[data-tab="stats"]', 'Тестовый инструмент: статистика вопросов'],
+  ['.tab[data-tab="settings"]', 'Тестовый инструмент: выбор модели'],
+  ['.model-chip', 'Отвечать этой моделью'],
+  ['.msg-copy', 'Скопировать ответ в буфер обмена'],
+  ['.source', 'Открыть документ и подсветить это место'],
+  ['.option', 'Выбрать этот вариант — он уйдёт как ваш ответ'],
+  ['.ticket .primary', 'Письмо уйдёт в службу качества, ответ придёт в этот чат'],
+  ['.msg.agent > .primary', 'Задать последний вопрос ещё раз'],
+  ['.qc-item', 'Показать запрос'],
+  ['.qc-form .primary', 'Ответ уйдёт сотруднику в чат и попадёт в базу знаний'],
+  ['#weekly', 'Отчёт службы качества за 7 дней'],
+  ['.doc-pick button', 'Открыть этот источник'],
+  ['.context-menu button:not(.danger)', 'Переименовать: Enter — сохранить, Esc — отмена'],
+  ['.context-menu .danger', 'Закрыть чат — диалог убирается из списка'],
+];
+const CONTROL = 'button, summary, [data-tip], [role="button"], [role="radio"], [role="switch"]';
+const tipBox = el('div', 'tip');
+tipBox.id = 'tip';
+tipBox.setAttribute('role', 'tooltip');
+document.body.append(tipBox);
+let tipOwner = null, tipWait = null;
+
+function tipText(control) {
+  if (control.dataset.tip) return control.dataset.tip;
+  if (!control.dataset.title && control.title) {       // родную всплывашку браузера гасим — будет наша
+    control.dataset.title = control.title;
+    control.title = '';
+  }
+  const hint = HINTS.find(([selector]) => control.matches(selector));
+  return control.dataset.title || (hint ? hint[1] : '');
+}
+
+function showTip(control) {
+  const text = tipText(control);
+  if (!text) return;
+  tipOwner = control;
+  tipBox.textContent = text;
+  control.setAttribute('aria-describedby', 'tip');
+  tipBox.classList.add('on');
+  const box = control.getBoundingClientRect(), size = tipBox.getBoundingClientRect();
+  const width = window.innerWidth, height = window.innerHeight;
+  const clampX = (x) => Math.min(Math.max(8, x), width - size.width - 8);
+  const clampY = (y) => Math.min(Math.max(8, y), height - size.height - 8);
+  let x = clampX(box.left + box.width / 2 - size.width / 2), y;   // по умолчанию — по центру над кнопкой
+  if (box.height <= 200 && box.top - size.height - 8 >= 8) y = box.top - size.height - 8;            // над (хоть впритык к краю)
+  else if (box.height <= 200 && box.bottom + size.height + 8 <= height) y = box.bottom + 8;      // под
+  else {                                                                                        // высокий элемент (рельса, полоска на границе) — сбоку
+    y = clampY(box.top + box.height / 2 - size.height / 2);
+    x = box.left - size.width - 10 >= 8 ? box.left - size.width - 10 : clampX(box.right + 10);
+  }
+  tipBox.style.left = Math.round(x) + 'px';
+  tipBox.style.top = Math.round(y) + 'px';
+}
+
+function hideTip() {
+  clearTimeout(tipWait);
+  tipWait = null;
+  if (tipOwner) { tipOwner.removeAttribute('aria-describedby'); tipOwner = null; }
+  tipBox.classList.remove('on');
+}
+
+document.addEventListener('pointerover', (event) => {
+  const control = event.pointerType === 'touch' ? null : hit(event.target, CONTROL);
+  if (control === tipOwner) return;
+  hideTip();
+  if (!control || control.disabled) return;
+  tipWait = setTimeout(() => { tipWait = null; showTip(control); }, 220);   // мимо кнопки проезжаем без всплывашки
+});
+document.addEventListener('pointerdown', hideTip);
+document.addEventListener('click', (event) => {       // после клика подсказка кнопки дока меняет текст — показываем новый, если указатель остался на кнопке
+  const control = hit(event.target, CONTROL);
+  hideTip();
+  if (!control || !control.matches(':hover')) return;
+  tipWait = setTimeout(() => { tipWait = null; showTip(control); }, 350);
+});
+document.addEventListener('scroll', hideTip, true);    // подсказка прибита к экрану — при прокрутке убираем
+document.documentElement.addEventListener('pointerleave', hideTip);
+document.addEventListener('focusin', (event) => {     // с клавиатуры подсказка появляется сразу у кнопки в фокусе
+  if (event.target.matches('input, textarea, select')) return hideTip();
+  const control = hit(event.target, CONTROL);
+  if (control) showTip(control); else hideTip();
+});
+document.addEventListener('focusout', hideTip);
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') hideTip(); });
+window.addEventListener('blur', hideTip);
+
+/* список «Тестовые вопросы» сворачивается не только кнопкой, но и кликом мимо него — по любому полю или кнопке; и по Esc */
+document.addEventListener('pointerdown', (event) => {
+  const drop = $('#examples-drop');
+  if (drop.open && !drop.contains(event.target)) drop.open = false;
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') $('#examples-drop').open = false;
+});
+
+/* ---- презентационные мелочки оформлений: запросов к API не делают ---- */
+
+/* кнопка «Копировать» у ответа агента; показывает её только оформление «Слэк» (CSS) */
+function copyButton(text) {
+  const node = button('msg-copy', 'Копировать', async () => {
+    try { await navigator.clipboard.writeText(text || ''); node.textContent = 'Скопировано'; }
+    catch (error) { node.textContent = 'Не удалось скопировать'; }
+    setTimeout(() => { node.textContent = 'Копировать'; }, 1400);
+  });
+  node.title = 'Скопировать ответ в буфер обмена';
+  return node;
+}
+
+/* ---- модели на выбор: переключатель в шапке, выбор хранится в сессии ---- */
 
 async function newSession() {
   const model = localStorage.getItem('regqa.model');
@@ -527,38 +907,17 @@ async function newSession() {
 }
 
 function setupModels(health) {
-  // вкладка «Настройки» правой колонны: кнопки-переключатели, действующая модель подсвечена
-  const group = $('#model-switch');
-  $('#tab-settings-button').hidden = false;
-  let current = localStorage.getItem('regqa.model');
-  if (!health.models.some((m) => m.id === current)) current = health.model_default;
-  const paint = () => group.querySelectorAll('.model-chip').forEach((node) => {
-    const on = node.dataset.model === current;
-    node.classList.toggle('active', on);
-    node.setAttribute('aria-checked', on ? 'true' : 'false');
+  const pick = $('#model-switch');
+  $('#model-note').hidden = false;
+  health.models.forEach((m) => pick.append(new Option(m.label, m.id)));
+  const saved = localStorage.getItem('regqa.model');
+  pick.value = health.models.some((m) => m.id === saved) ? saved : health.model_default;
+  pick.addEventListener('change', async () => {
+    const chosen = pick.value;
+    localStorage.setItem('regqa.model', chosen);
+    try { await api('/api/session/' + sid + '/model', { method: 'POST', body: JSON.stringify({ model: chosen }) }); }
+    catch (error) { localStorage.removeItem('regqa.model'); pick.value = health.model_default; }
   });
-  const choose = async (id) => {                      // действует сразу во всех чатах и запоминается для новых
-    if (id === current) return;
-    current = id;
-    paint();
-    try {
-      const results = await Promise.allSettled(chats.map((chat) => api('/api/session/' + chat.sid + '/model',
-        { method: 'POST', body: JSON.stringify({ model: id }) })));
-      if (!results.some((r) => r.status === 'fulfilled')) throw new Error('модель не переключилась');
-      localStorage.setItem('regqa.model', id);
-    } catch (error) {
-      current = health.model_default;
-      localStorage.removeItem('regqa.model');
-      paint();
-    }
-  };
-  health.models.forEach((m) => {
-    const node = button('model-chip', m.label, () => choose(m.id));
-    node.dataset.model = m.id;
-    node.setAttribute('role', 'radio');
-    group.append(node);
-  });
-  paint();
 }
 
 /* ---- старт ---- */

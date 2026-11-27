@@ -5,33 +5,65 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>ДокИИ</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=20261128g">
+<script>
+  // страница входа закрывает только чат сотрудника; отдельные экраны /qc и /analytics остаются открытыми, как были.
+  // regqa.entered — прежняя отметка входа: кто вошёл до почты, видит стенд сразу (app.js переносит её в regqa.login)
+  if (!/^\/(qc|analytics)\/?$/.test(location.pathname) && !localStorage.getItem('regqa.login') && !localStorage.getItem('regqa.entered')) document.documentElement.classList.add('gate-first');
+</script>
 </head>
 <body>
 <div class="app panel-closed" id="app">
   <main class="chat">
     <header class="chat-head">
-      <div class="head-row">
-        <div class="head-note">
-          <h1>ДокИИ</h1>
-          <p class="limit-note" id="limit-note">Демонстрационный стенд ответов по регламенту: до 60 вопросов в час с одного IP.</p>
-        </div>
-        <details class="examples-drop" id="examples-drop" hidden>
-          <summary>Тестовые вопросы</summary>
-          <div class="examples" id="examples"></div>
-        </details>
+      <div class="head-note">
+        <h1>ДокИИ</h1>
+        <p class="limit-note" id="limit-note">Демонстрационный стенд ответов по регламенту: до 60 вопросов в час с одного IP.</p>
+        <p class="model-note" hidden id="model-note"><label for="model-switch">Модель:</label> <select id="model-switch" aria-label="Модель, которая отвечает на вопросы"></select></p>
       </div>
-      <div class="chat-tabs" id="chat-tabs"></div>
-      <div class="theme-tabs" id="theme-tabs" title="Тема оформления">
-        <span class="theme-label">Тема:</span>
-        <button class="theme-chip active" data-theme="steel" type="button">Сталь</button>
-        <button class="theme-chip" data-theme="graphite" type="button">Графит</button>
+      <div class="toolbar">
+        <div class="chat-tabs" id="chat-tabs"></div>
+        <div class="tools">
+          <button class="ghost mail-open" id="mail-open" type="button" hidden data-tip="Почта сотрудника: письма от агента — «передано в службу качества», «ответ на ваш вопрос»">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="5.4" width="18" height="13.2" rx="2.4"/><path d="m3.8 7.2 7.3 5.2a1.6 1.6 0 0 0 1.8 0l7.3-5.2"/></svg>
+            Почта<span class="badge" id="mail-badge" hidden></span>
+          </button>
+          <details class="examples-drop" id="examples-drop" hidden>
+            <summary>Тестовые вопросы</summary>
+            <div class="examples" id="examples"></div>
+          </details>
+        </div>
       </div>
     </header>
     <section class="messages" id="messages" aria-live="polite"></section>
     <div class="thinking" id="thinking" hidden>
       <div class="bar"></div>
       <div class="steps" id="thinking-steps"></div>
+    </div>
+    <div class="dock" role="group" aria-label="Оформление, тестовые инструменты и вход">
+      <button class="dock-btn" id="theme-toggle" type="button" role="switch" aria-checked="true" aria-label="Тёмная тема" data-tip="Тема: тёмная · нажмите — станет светлой">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <g class="half" data-half="steel"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.8v1.8M21.2 12h-1.8M12 21.2v-1.8M2.8 12h1.8M18.51 5.49l-1.28 1.28M18.51 18.51l-1.28-1.28M5.49 18.51l1.28-1.28M5.49 5.49l1.28 1.28"/></g>
+          <g class="half s" data-half="graphite" transform="translate(1.2 1.2) scale(.9)"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></g>
+        </svg>
+      </button>
+      <button class="dock-btn" id="skin-toggle" type="button" aria-label="Оформление: Аврора. Переключить на Слэк" data-tip="Оформление: Аврора · нажмите — станет Слэк">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <g class="half" data-half="v-aurora"><rect x="3" y="4.8" width="18" height="14.4" rx="2.6"/><path d="M3 9.2h18"/></g>
+          <g class="half" data-half="v-slack"><rect x="3" y="4.8" width="18" height="14.4" rx="2.6"/><path d="M9.8 4.8v14.4"/><path class="fs" d="M5.6 4.8h4.2v14.4H5.6A2.6 2.6 0 0 1 3 16.6V7.4a2.6 2.6 0 0 1 2.6-2.6z"/></g>
+        </svg>
+      </button>
+      <button class="dock-btn" id="demo-toggle" type="button" role="switch" aria-checked="false" aria-label="Тестовые инструменты: скрыты. Показать" data-tip="Тестовые инструменты: скрыты · нажмите — показать службу качества, статистику и настройки">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path class="line" d="M9.3 3h5.4M10.6 3v5.4l-3.66 9.2a1.9 1.9 0 0 0 1.76 2.6h6.6a1.9 1.9 0 0 0 1.76-2.6L13.4 8.4V3"/>
+          <path class="liquid" d="M10.41 13.6h3.18l1.28 3.2a1.2 1.2 0 0 1-1.11 1.65h-3.52a1.2 1.2 0 0 1-1.11-1.65z"/>
+        </svg>
+      </button>
+      <button class="dock-btn" id="exit-btn" type="button" aria-label="Выход: вернуться на страницу входа" data-tip="Выход: вернуться на страницу входа">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path class="line" d="M13.5 4.5H7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h6.5M10.5 12h10M17 8.5l3.5 3.5-3.5 3.5"/>
+        </svg>
+      </button>
     </div>
     <footer class="composer">
       <form class="ask" id="ask-form">
@@ -40,40 +72,69 @@
       </form>
     </footer>
   </main>
-  <button class="rail" id="rail" type="button" title="Служба качества, документы, статистика и настройки">
+  <button class="rail" id="rail" type="button" title="Служба качества, документы и статистика">
     <span class="rail-arrow">◂</span>
-    <span class="rail-label">Служба качества · Документы · Статистика · Настройки</span>
+    <span class="rail-label">Служба качества · Документы · Статистика</span>
   </button>
   <aside class="panel" id="panel">
     <button class="panel-collapse" id="panel-collapse" type="button" title="Свернуть колонну">▸</button>
     <nav class="tabs">
-      <button class="tab active" type="button" data-tab="qc">Служба качества</button>
-      <button class="tab" type="button" data-tab="docs">Документы</button>
-      <button class="tab" type="button" data-tab="stats">Статистика</button>
-      <button class="tab" type="button" data-tab="settings" id="tab-settings-button" hidden>Настройки</button>
+      <button class="tab active" type="button" data-tab="docs">Документы</button>
+      <button class="tab" type="button" data-tab="mail" hidden>Почта<span class="badge" id="mail-tab-badge" hidden></span></button>
+      <button class="tab" type="button" data-tab="qc" data-demo>Служба качества<span class="badge" id="qc-badge" hidden></span></button>
+      <button class="tab" type="button" data-tab="stats" data-demo>Статистика</button>
+      <button class="tab" type="button" data-tab="settings" data-demo>Настройки</button>
       <button class="tab close" id="panel-close" type="button" title="Свернуть">▸</button>
     </nav>
-    <section class="tab-body active" id="tab-qc">
+    <section class="tab-body" id="tab-qc">
+      <div class="mailbox" id="qc-mail">
+        <div class="mailbox-head"><b id="qc-mail-name"></b><span class="mailbox-addr" id="qc-mail-addr"></span></div>
+        <div class="mail-list" id="qc-mail-list"></div>
+      </div>
       <div class="qc-list" id="qc-list"></div>
+      <div id="qc-letter"></div>
       <div id="qc-detail"></div>
       <div class="weekly">
         <button class="ghost" id="weekly" type="button">Отчёт за неделю</button>
         <pre id="weekly-out" hidden></pre>
       </div>
     </section>
-    <section class="tab-body" id="tab-docs">
+    <section class="tab-body active" id="tab-docs">
       <div class="doc-pick" id="doc-pick"></div>
-      <div class="doc" id="doc"></div>
+      <div class="doc" id="doc"><p class="empty">Здесь открывается регламент из ответа агента — с подсветкой нужного места. Нажмите на источник под ответом.</p></div>
+    </section>
+    <section class="tab-body" id="tab-mail">
+      <div class="mailbox">
+        <div class="mailbox-head"><b id="mail-name"></b><span class="mailbox-addr" id="mail-addr"></span></div>
+        <div class="mail-list" id="mail-list"></div>
+      </div>
+      <div id="mail-detail"></div>
     </section>
     <section class="tab-body" id="tab-stats"></section>
     <section class="tab-body" id="tab-settings">
       <h2 class="settings-title">Модель</h2>
-      <p class="settings-note">Модель, которая отвечает на вопросы. Выбор действует сразу во всех чатах и запоминается в браузере.</p>
-      <div class="model-tabs" id="model-switch" role="radiogroup" aria-label="Модель, которая отвечает на вопросы"></div>
+      <p class="settings-note">Модель, которая отвечает на вопросы. Переключается сразу и запоминается в браузере.</p>
+      <div class="model-tabs" id="model-chips" role="radiogroup" aria-label="Модель, которая отвечает на вопросы"></div>
+      <p class="settings-empty" id="model-empty" hidden>На этом стенде одна модель — выбирать не из чего.</p>
     </section>
   </aside>
 </div>
+<section class="gate" id="gate" aria-labelledby="gate-title">
+  <form class="gate-card" id="gate-form">
+    <h1 id="gate-title">ДокИИ</h1>
+    <p class="gate-sub">Помощник сотрудника: отвечает на вопросы по регламентам компании со ссылкой на документ.</p>
+    <label class="gate-field">Почта
+      <input id="gate-email" type="email" readonly autocomplete="username" aria-describedby="gate-note">
+    </label>
+    <label class="gate-field">Пароль
+      <input id="gate-pass" type="password" readonly autocomplete="current-password" aria-describedby="gate-note">
+    </label>
+    <p class="gate-note" id="gate-note">Данные заполнены заранее — для демонстрации их нельзя изменить.</p>
+    <button class="primary" id="gate-enter" type="submit">Войти</button>
+    <p class="gate-error" id="gate-error" role="alert" hidden></p>
+  </form>
+</section>
 <svg class="flight" id="flight"><path id="flight-path" d=""/><circle class="fly-dot" id="fly-dot" r="5"/></svg>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=20261128g"></script>
 </body>
 </html>

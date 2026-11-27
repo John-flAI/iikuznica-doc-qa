@@ -1,7 +1,7 @@
 :root {
   --bg: #f4f6f9; --panel: #ffffff; --ink: #1d2433; --muted: #667085; --line: #dde2ea;
   --accent: #2456c8; --accent-ink: #ffffff; --ok: #187a55; --warn: #a35a00; --gold: #c9921a;
-  --hl: #fff1a8; --radius: 12px;
+  --hl: color-mix(in srgb, var(--accent) 17%, var(--panel)); --radius: 12px;
   --qc-bg: #fffaf0; --qc-line: #f0dcb0; --ok-bg: #e7f3ec; --warn-bg: #fff4dc; --warn-line: #f3dcaa;
   --gold-bg: #fffdf5; --gold-line: #ecd9a4; --doc-text: #2c3444; --hover: #e8edf5;
   --ease: cubic-bezier(.2, 0, 0, 1); --dur-1: 140ms; --dur-2: 220ms;
@@ -20,9 +20,9 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 
 /* ---- чат ---- */
 .chat { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: var(--panel); }
-.chat-head { padding: 12px 22px 10px; border-bottom: 1px solid var(--line); }
-.head-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; row-gap: 8px; }
-.head-note { min-width: 0; }
+.chat-head { padding: 12px 14px 10px 22px; border-bottom: 1px solid var(--line); }
+.head-note { min-width: 0; margin-right: 190px; }   /* справа над второй строкой — док переключателей */
+.toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; margin-top: 24px; }   /* вторая строка: чаты слева, «Тестовые вопросы» — под доком, вплотную к его нижнему краю */
 .chat-head h1 { display: inline; margin: 0; font-size: 17px; font-weight: 650; }
 .chat-head .limit-note { display: inline; margin: 0; color: var(--warn); font-size: 12px; }
 .chat-head .limit-note::before { content: "("; margin-right: 2px; }
@@ -33,11 +33,17 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 .examples-drop summary::after { content: "▾"; font-size: 12px; line-height: 1; }
 .examples-drop[open] summary::after { content: "▴"; }
 .examples-drop summary:hover, .examples-drop[open] summary { border-color: var(--accent); color: var(--accent); }
+/* вторая строка шапки, справа: «Почта» сотрудника и «Тестовые вопросы». Кнопку «Почта» показывает app.js (setupMail),
+   только если на сервере есть почта; счётчик непрочитанных — .badge */
+.tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.mail-open { display: inline-flex; align-items: center; gap: 7px; }
+.mail-open .i { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 7px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; line-height: 1; }
 .ghost { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; color: var(--muted); white-space: nowrap; }
 .ghost:hover { border-color: var(--accent); color: var(--accent); }
 
 /* вкладки чатов: у каждого своя сессия, переключение и правое меню */
-.chat-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.chat-tabs { flex: 1 1 auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .chat-chip { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; font-size: 13px; color: var(--muted); }
 .chat-chip:hover { border-color: var(--accent); color: var(--accent); }
 .chat-chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
@@ -76,7 +82,7 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 .option.picked { border-color: var(--muted); color: var(--muted); background: var(--panel); pointer-events: none; }
 
 .ticket { width: 100%; border: 1px solid var(--gold-line); background: var(--gold-bg); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-.ticket pre { margin: 0; white-space: pre-wrap; font: 13px/1.45 inherit; color: var(--ink); max-height: 260px; overflow-y: auto; }
+.ticket pre { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 13px; line-height: 1.45; color: var(--ink); max-height: 260px; overflow-y: auto; }   /* было `font: 13px/1.45 inherit` — негодная запись, браузер отбрасывал её и печатал письмо моноширинным */
 .ticket .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 8px 18px; font-weight: 600; box-shadow: var(--shadow-1); }
 .primary:hover { background: color-mix(in srgb, var(--accent), #000 12%); }
@@ -108,11 +114,30 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 .panel { flex: 0 0 46%; min-width: 380px; max-width: 720px; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); position: relative; }
 .panel-collapse { position: absolute; left: 0; top: 0; bottom: 0; width: 14px; border: 0; background: var(--bg); color: var(--muted); padding: 0; font-size: 11px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .panel-collapse:hover { background: var(--hover); color: var(--accent); }
-.tabs { display: flex; border-bottom: 1px solid var(--line); padding: 0 12px 0 18px; }
+.tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding: 0 12px 0 18px; }
 .tab { background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 12px 14px; color: var(--muted); margin-bottom: -1px; }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .tab-body { flex: 1 1 auto; overflow-y: auto; padding: 16px; display: none; }
 .tab-body.active { display: block; }
+
+/* тестовые инструменты стенда (служба качества, статистика, настройки — вкладки с data-demo): это не продукт,
+   а показ «как это работает». Пока скрыты — в колонне одна «Документы»; показаны (кнопка в доке, app.js applyDemo)
+   стоят отдельной группой после разделителя и обведены пунктиром; тело тестовой вкладки — с подписью */
+.panel:not(.demo-on) .tab[data-demo] { display: none; }
+.panel.demo-on .tab[data-tab="qc"] { margin-left: 12px; }
+.panel.demo-on .tab[data-tab="qc"]::before { content: ""; position: absolute; left: -8px; top: 10px; bottom: 10px; width: 1px; background: var(--line); }
+:where(.panel.demo-on .tab[data-demo]) { position: relative; }
+:where(.panel.demo-on .tab[data-demo]:not(.active)) { border-bottom-style: dashed; border-bottom-color: color-mix(in srgb, var(--ink) 30%, transparent); }
+html[data-motion="v-aurora"] :where(.panel.demo-on .tab[data-demo]) { outline: 1px dashed color-mix(in srgb, var(--ink) 32%, transparent); outline-offset: -1px; }
+html[data-motion="v-aurora"] :where(.panel.demo-on .tab[data-demo]:not(.active)) { border-bottom-color: transparent; }
+html[data-motion="v-aurora"] .panel.demo-on .tab[data-demo]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+:where(.panel.demo-on) :is(#tab-qc, #tab-stats, #tab-settings)::before {
+  content: "Тестовый инструмент — не часть продукта"; display: block; margin: 0 0 12px;
+  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+}
+.app:has(.panel:not(.demo-on)) .rail-label { font-size: 0; }   /* в продукте на рельсе — только рабочие вкладки сотрудника; текст разметки не трогаем (якорь исполнителя) */
+.app:has(.panel:not(.demo-on)) .rail-label::after { content: "Документы · Почта"; font-size: 12px; }
+html.no-mail .app:has(.panel:not(.demo-on)) .rail-label::after { content: "Документы"; }
 
 /* служба качества */
 .qc-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
@@ -127,12 +152,41 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 .qc-detail .context { font-size: 13px; color: var(--muted); white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
 .qc-detail .answer { background: var(--qc-bg); border-radius: 8px; padding: 8px 10px; }
 .qc-form { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.qc-form input, .qc-form textarea { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.qc-form input, .qc-form textarea { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--panel); color: var(--ink); }   /* фон и цвет темы: поле ответа читается и в тёмной */
+.qc-form input::placeholder, .qc-form textarea::placeholder { color: var(--muted); opacity: .8; }
 .qc-form textarea { resize: vertical; min-height: 84px; }
 .qc-done { color: var(--ok); font-size: 13px; }
 .weekly { margin-top: 16px; border-top: 1px dashed var(--line); padding-top: 12px; }
 .weekly pre { white-space: pre-wrap; font: inherit; background: var(--bg); border-radius: 10px; padding: 10px 12px; margin: 8px 0 0; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 2px; }
+
+/* почта (имитация): ящик службы качества — на вкладке «Служба качества» (письмо + под ним прежняя карточка запроса
+   с формой ответа), ящик сотрудника — на «Почта». app.js: loadMail (список), openLetter (письмо целиком) */
+.mailbox { margin-bottom: 14px; }
+.mailbox-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; margin-bottom: 8px; }
+.mailbox-head b { font-size: 15px; }
+.mailbox-addr { color: var(--muted); font-size: 12.5px; }
+.mail-list { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow-y: auto; }
+.letter { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 1px 10px; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px 9px 10px; box-shadow: var(--shadow-1); }
+.letter .dot { grid-column: 1; grid-row: 1 / 3; width: 8px; height: 8px; border-radius: 50%; background: transparent; }
+.letter.unread .dot { background: var(--accent); }
+.letter .subj { grid-column: 2; grid-row: 1; font-size: 14px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.letter.unread .subj { font-weight: 700; }
+.letter .when { grid-column: 3; grid-row: 1; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.letter .route { grid-column: 2; grid-row: 2; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.letter:hover, .letter.active { border-color: var(--accent); }
+.letter.active { box-shadow: inset 0 0 0 1px var(--accent); }
+.letter-full { margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-1); }
+#tab-qc .letter-full { border-color: var(--qc-line); border-left-color: var(--gold); background: var(--qc-bg); }   /* служба качества — как её ответы в чате: золотая кромка */
+.letter-full h3 { margin: 0 0 6px; font-size: 15px; }
+.letter-meta { color: var(--muted); font-size: 12.5px; }
+.letter-text { margin: 8px 0 0; white-space: pre-wrap; font-family: inherit; font-size: 14px; line-height: 1.55; color: var(--ink); }
+.sent-mail { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--ok); font-size: 13px; }   /* пометка «письмо доставлено» — только по слову сервера (letter_delivered) */
+.sent-mail::before { content: "✓"; font-weight: 700; }
+.qc-done .sent-mail { margin-top: 4px; }
+/* сервер без почты: «Почта» спрятана, у службы качества — прежний список запросов */
+html.no-mail :is(.mailbox, #qc-letter) { display: none; }
+html:not(.no-mail) #tab-qc .qc-list { display: none; }
 
 /* документы */
 .doc-pick { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
@@ -143,7 +197,13 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 .doc p { margin: 0 0 6px; scroll-margin-top: 80px; border-radius: 6px; padding: 3px 6px; }
 .doc p.sub { padding-left: 18px; }
 .doc p.text { padding-left: 30px; color: var(--doc-text); }
-.doc p.hl { background: var(--hl); box-shadow: 0 0 0 3px var(--hl); transition: box-shadow .6s; }
+/* найденное место: мягкая плашка цвета акцента (--hl — в темах) и тонкая полоска слева, как у карточек источников.
+   Акцент, а не жёлтый маркер: жёлто-золотое в стенде значит «служба качества», зелёное — «источник в регламенте» */
+.doc p.hl { background: var(--hl); border-radius: 6px; box-shadow: inset 3px 0 0 var(--accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .doc p.hl { animation: hl-in .8s var(--ease) 1; }   /* мягкий ореол сбегает на плашку — глаз находит место после прокрутки */
+}
+@keyframes hl-in { from { box-shadow: inset 3px 0 0 var(--accent), 0 0 0 10px color-mix(in srgb, var(--accent) 32%, transparent); } }
 
 /* аналитика */
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
@@ -173,26 +233,92 @@ h4.sec { margin: 16px 0 6px; font-size: 13px; color: var(--muted); text-transfor
 /* светлые */
 html[data-theme="steel"] {
   --bg: #eef1f4; --panel: #fcfdfe; --ink: #1a2129; --muted: #5e6a78; --line: #d4dbe4;
-  --accent: #35679c; --accent-ink: #ffffff; --ok: #1f7a4d; --warn: #96590a; --gold: #a9822c; --hl: #ffeaa6;
+  --accent: #35679c; --accent-ink: #ffffff; --ok: #1f7a4d; --warn: #96590a; --gold: #a9822c;
+  --hl: color-mix(in srgb, var(--accent) 17%, var(--panel));
   --qc-bg: #f3f7fb; --qc-line: #d7e1ec; --ok-bg: #e2efe7; --warn-bg: #fcf2df; --warn-line: #ebd8ae;
   --gold-bg: #faf7ee; --gold-line: #e4dbc2; --doc-text: #222b34; --hover: #e6ebf2;
 }
 /* тёмные */
 html[data-theme="graphite"] {
   --bg: #14171b; --panel: #1e232a; --ink: #e7ebf1; --muted: #98a3b0; --line: #313944;
-  --accent: #5d8ceb; --accent-ink: #0c1424; --ok: #4cc38a; --warn: #e0a458; --gold: #d4a537; --hl: #4a3f10;
+  --accent: #5d8ceb; --accent-ink: #0c1424; --ok: #4cc38a; --warn: #e0a458; --gold: #d4a537; --hl: color-mix(in srgb, var(--accent) 24%, transparent);
   --qc-bg: #252c35; --qc-line: #3e4956; --ok-bg: #1d3328; --warn-bg: #342b17; --warn-line: #4e4020;
   --gold-bg: #2b2618; --gold-line: #4e4526; --doc-text: #c7ced7; --hover: #2b323c;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .35), 0 1px 3px rgba(0, 0, 0, .25);
   --shadow-2: 0 4px 16px rgba(0, 0, 0, .45), 0 1px 3px rgba(0, 0, 0, .25);
 }
 
-/* переключатель тем и механики */
-.theme-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-.theme-label { font-size: 12px; color: var(--muted); padding-right: 2px; }
-.theme-chip { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; font-size: 12px; color: var(--muted); }
-.theme-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--hover); }
-.theme-chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+/* док переключателей: тема и оформление — две кнопки в одном месте поверх обоих оформлений.
+   В Авроре висит над правым краем шапки (шапка оставляет под него место), в Слэке стоит в клетке ленты —
+   координаты те же: 10px от верха, 14px от правого края колонки чата */
+.chat { position: relative; }
+.dock { position: absolute; top: 10px; right: 14px; z-index: 30; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-2); }
+.dock-btn { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--ink); }
+.dock-btn:hover { background: var(--hover); color: var(--accent); }
+.dock-btn:active { transform: scale(.94); }
+.dock-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dock-btn .i { width: 26px; height: 26px; }
+/* в кнопке-переключателе лежат оба значка; видимый выбирает CSS по атрибутам темы и оформления —
+   тот же источник, что красит страницу, поэтому иконка всегда согласована с тем, что видит пользователь */
+.dock-btn .half {
+  fill: currentColor; fill-opacity: 0; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+  opacity: 0; transition: opacity var(--dur-2) var(--ease);
+}
+.dock-btn .half.s { stroke-width: 1.9; }   /* группа уменьшена transform (.9): в пикселях снова 1.7 */
+#theme-toggle [data-half="graphite"], #skin-toggle [data-half="v-aurora"] { opacity: 1; }   /* до запуска скрипта — как дефолты темы и оформления */
+html[data-theme="steel"] #theme-toggle [data-half="graphite"],
+html[data-motion="v-slack"] #skin-toggle [data-half="v-aurora"] { opacity: 0; }
+html[data-theme="steel"] #theme-toggle [data-half="steel"],
+html[data-motion="v-slack"] #skin-toggle [data-half="v-slack"] { opacity: 1; }
+.dock-btn .fs { fill-opacity: .28; }   /* оформление «Слэк»: колонка чатов слева легко залита (выбор владельца: Т2 «солнце и луна», С1 «раскладка») */
+@media (prefers-reduced-motion: no-preference) {   /* смена состояния: один значок сворачивается, другой разворачивается */
+  .dock-btn .half {
+    transform-box: fill-box; transform-origin: center; scale: .6; rotate: -40deg;
+    transition: opacity var(--dur-2) var(--ease), scale .4s var(--spring), rotate .4s var(--ease);
+  }
+  #theme-toggle [data-half="graphite"], #skin-toggle [data-half="v-aurora"],
+  html[data-theme="steel"] #theme-toggle [data-half="steel"],
+  html[data-motion="v-slack"] #skin-toggle [data-half="v-slack"] { scale: 1; rotate: 0deg; }
+}
+.dock-btn .line { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }   /* одиночный значок («Выход», «Тестовые инструменты») */
+.dock-btn .liquid { fill: currentColor; fill-opacity: 0; transition: fill-opacity var(--dur-2) var(--ease); }   /* колба наполняется, когда тестовые инструменты показаны */
+#demo-toggle[aria-checked="true"] { color: var(--accent); }
+#demo-toggle[aria-checked="true"] .liquid { fill-opacity: 1; }
+
+/* страница входа (демонстрационная): html.gate-first прячет стенд и показывает её. Класс ставит строка в <head>,
+   пока не нажато «Войти» (кроме отдельных экранов /qc и /analytics — они открыты всегда); «Выход» в доке (app.js)
+   ставит его снова. Поля заполнены заранее и readonly */
+html.gate-first .app { display: none; }
+.gate { display: none; position: relative; isolation: isolate; min-height: 100vh; place-items: center; padding: 24px; background: var(--bg); }
+html.gate-first .gate { display: grid; }
+.gate::before {   /* тот же живой градиент, что у Авроры, — страница входа одинаково выглядит в обоих оформлениях */
+  content: ""; position: fixed; inset: -30%; z-index: -1; pointer-events: none; filter: blur(70px);
+  background:
+    radial-gradient(40% 44% at 18% 22%, color-mix(in srgb, var(--accent) 60%, transparent), transparent 70%),
+    radial-gradient(32% 38% at 84% 16%, color-mix(in srgb, var(--aur-2, #9b7bff) 48%, transparent), transparent 70%),
+    radial-gradient(36% 42% at 62% 90%, color-mix(in srgb, var(--aur-3, #f472b6) 28%, transparent), transparent 70%);
+}
+.gate-card {
+  display: flex; flex-direction: column; gap: 14px; width: min(100%, 380px); padding: 28px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 20px;
+  box-shadow: var(--shadow-2); backdrop-filter: blur(18px);
+}
+.gate-card h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
+.gate-sub { margin: -6px 0 4px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.gate-field { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+.gate-field input { padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--ink) 4%, transparent); color: var(--ink); font-size: 15px; cursor: default; }
+.gate-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gate-note { margin: -2px 0 2px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.gate-card .primary { padding: 12px 18px; font-size: 15px; }
+.gate-error { margin: 0; color: var(--warn); font-size: 13px; line-height: 1.45; }   /* ошибка входа: сервер не ответил — остаёмся на странице входа */
+
+/* подсказка при наведении (app.js: одна всплывашка на все кнопки) */
+.tip { position: fixed; left: 0; top: 0; z-index: 60; display: none; max-width: min(340px, calc(100vw - 16px)); padding: 6px 10px; border-radius: 10px; background: var(--ink); color: var(--bg); font-size: 12.5px; line-height: 1.4; box-shadow: var(--shadow-2); pointer-events: none; }
+.tip.on { display: block; }
+@media (prefers-reduced-motion: no-preference) {
+  .tip.on { animation: tip-in .16s var(--ease); }
+}
+@keyframes tip-in { from { opacity: 0; translate: 0 4px; } }
 
 /* ---- современный полиш: глубина, движение, фокус (better-ui / animation-systems) ---- */
 .source, .ticket, .qc-item, .qc-detail, .card { box-shadow: var(--shadow-1); }
@@ -215,22 +341,251 @@ html[data-theme="graphite"] {
   .qc-item:hover, .source:hover, .primary:active { transform: none; }
 }
 
+/* ---- оформления (скины): Аврора — по умолчанию, Слэк — по кнопке в доке (index.html .dock, app.js applySkin).
+   У каждого своя КОНСТРУКЦИЯ: формы, поверхности, движение, решения — html[data-motion="v-…"].
+   Анимации объявлены только при prefers-reduced-motion: no-preference (гайд motion).
+   Остальные 8 вариантов витрины (Стекло, Контур, Редакция, Брутал, Сегмент, Материал, Терминал, Оркестр) —
+   в архиве для статьи: sprint/_out/дизайн/36-statya/style-10-variantov.css ---- */
+html[data-motion] {
+  --hair: color-mix(in srgb, var(--ink) 12%, transparent);   /* стеклянная волосина */
+  /* акцент для ТЕКСТА на тонированной подложке: без подмески к чернилам темы не дотягивает до 4.5:1 */
+  --acc-text: color-mix(in srgb, var(--accent) 68%, var(--ink) 32%);
+  /* пружины — физика затухающего осциллятора, снятая в linear() (гайд physics-based-easing) */
+  --spring: linear(0, .128 4.2%, .378 8.3%, .625 12.5%, .816 16.7%, .939 20.8%, 1.006 25%, 1.034 29.2%, 1.038 33.3%, 1.031 37.5%, 1.021 41.7%, 1.012 45.8%, 1.006 50%, 1.002 54.2%, .999 58.3%, .999 70.8%, 1);
+  --bounce: linear(0, .121 4.2%, .385 8.3%, .675 12.5%, .915 16.7%, 1.074 20.8%, 1.15 25%, 1.162 27.1%, 1.161 29.2%, 1.132 33.3%, 1.086 37.5%, 1.04 41.7%, 1.004 45.8%, .983 50%, .974 54.2%, .975 58.3%, .981 62.5%, .988 66.7%, .995 70.8%, 1.001 75%, 1.004 83.3%, 1.003 91.7%, 1);
+}
+/* повтор входа сообщений при смене варианта (app.js: applyMotion снимает и тут же ставит класс) */
+.messages.replay > .msg, .messages.replay > .msg > * { animation: none !important; }
+/* «Копировать» у ответа: элемент есть всегда, показывает его только оформление «Слэк» */
+.msg-copy { display: none; }
+html[data-motion="v-slack"] .msg-copy {
+  display: inline-flex; position: absolute; right: 0; top: 0; z-index: 2; padding: 3px 10px;
+  font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow-1);
+  opacity: 0; transition: opacity var(--dur-1) var(--ease), color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+html[data-motion="v-slack"] .msg.agent:hover .msg-copy,
+html[data-motion="v-slack"] .msg-copy:focus-visible { opacity: 1; }
 
-.messages::-webkit-scrollbar, .tab-body::-webkit-scrollbar { width: 10px; height: 10px; }
-.messages::-webkit-scrollbar-thumb, .tab-body::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
-.messages::-webkit-scrollbar-thumb:hover, .tab-body::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+/* 1. АВРОРА — живой градиентный фон, капсулы, пузыри с хвостами и аватарами; ответ всплывает из размытия */
+html[data-motion="v-aurora"] { --aur-2: #9b7bff; --aur-3: #f472b6; }
+html[data-motion="v-aurora"] body::before {
+  content: ""; position: fixed; inset: -30%; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(40% 44% at 18% 22%, color-mix(in srgb, var(--accent) 75%, transparent), transparent 70%),
+    radial-gradient(32% 38% at 84% 16%, color-mix(in srgb, var(--aur-2) 62%, transparent), transparent 70%),
+    radial-gradient(36% 42% at 62% 90%, color-mix(in srgb, var(--aur-3) 36%, transparent), transparent 70%);
+  filter: blur(70px);
+}
+html[data-motion="v-aurora"] .chat { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+html[data-motion="v-aurora"] .panel { background: color-mix(in srgb, var(--panel) 86%, transparent); }
+html[data-motion="v-aurora"] :is(.chat-head, .composer, .rail) { border-color: var(--hair); }
+html[data-motion="v-aurora"] :is(.primary, .ghost, .chat-chip, .examples-drop summary, .option, .context-menu button) { border-radius: 999px; }
+html[data-motion="v-aurora"] .dock { background: color-mix(in srgb, var(--panel) 72%, transparent); border-color: var(--hair); backdrop-filter: blur(14px); box-shadow: 0 6px 18px rgba(0, 0, 0, .22); }
+html[data-motion="v-aurora"] .primary {
+  position: relative; overflow: hidden; padding: 9px 22px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 85%, #fff 15%), color-mix(in srgb, var(--accent) 50%, var(--aur-2) 50%));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+html[data-motion="v-aurora"] .primary::after {   /* блик, пробегающий по капсуле при наведении */
+  content: ""; position: absolute; top: 0; left: 0; width: 45%; height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .38), transparent);
+  transform: translateX(-260%) skewX(-20deg); transition: transform .6s var(--ease); pointer-events: none;
+}
+html[data-motion="v-aurora"] .primary:hover {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 80%, #fff 20%), color-mix(in srgb, var(--accent) 40%, var(--aur-2) 60%));
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--accent) 48%, transparent); transform: translateY(-1px);
+}
+html[data-motion="v-aurora"] .primary:hover::after { transform: translateX(360%) skewX(-20deg); }
+html[data-motion="v-aurora"] .primary.gold { background: linear-gradient(135deg, color-mix(in srgb, var(--gold) 85%, #fff 15%), var(--gold)); box-shadow: 0 6px 18px color-mix(in srgb, var(--gold) 38%, transparent); }
+html[data-motion="v-aurora"] :is(.ghost, .chat-chip, .examples-drop summary, .option) { background: color-mix(in srgb, var(--panel) 62%, transparent); border-color: var(--hair); backdrop-filter: blur(10px); }
+html[data-motion="v-aurora"] :is(.ghost, .chat-chip, .examples-drop summary, .option):not(.active):hover {
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent); color: var(--accent);
+  background: color-mix(in srgb, var(--panel) 88%, transparent); transform: translateY(-1px);
+}
+html[data-motion="v-aurora"] .chat-chip.active {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 85%, #fff 15%), color-mix(in srgb, var(--accent) 50%, var(--aur-2) 50%));
+  border-color: transparent; color: var(--accent-ink); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+html[data-motion="v-aurora"] .option { border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent); }
+html[data-motion="v-aurora"] .option:hover { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 85%, #fff 15%), color-mix(in srgb, var(--accent) 50%, var(--aur-2) 50%)); color: var(--accent-ink); border-color: transparent; }
+html[data-motion="v-aurora"] .msg { max-width: min(78%, 720px); position: relative; }
+html[data-motion="v-aurora"] :is(.msg.agent, .msg.qc) { padding-left: 42px; }
+html[data-motion="v-aurora"] :is(.msg.agent, .msg.qc)::before {   /* аватар агента */
+  content: "✦"; position: absolute; left: 0; top: 1px; width: 32px; height: 32px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 15px; font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), var(--aur-2)); color: var(--accent-ink);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+html[data-motion="v-aurora"] .msg.qc::before { content: "СК"; font-size: 11px; background: linear-gradient(135deg, var(--gold), #f59e0b); color: #1a1200; box-shadow: 0 4px 12px color-mix(in srgb, var(--gold) 42%, transparent); }
+html[data-motion="v-aurora"] .msg.user { padding-right: 42px; }
+html[data-motion="v-aurora"] .msg.user::after {   /* аватар сотрудника */
+  content: "Вы"; position: absolute; right: 0; top: 1px; width: 32px; height: 32px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 15%, transparent); border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+}
+html[data-motion="v-aurora"] .msg.user .bubble {   /* пилюля: одинаковые скругления, без хвоста */
+  border-radius: 20px; padding: 10px 18px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 85%, #fff 15%), color-mix(in srgb, var(--accent) 50%, var(--aur-2) 50%));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+html[data-motion="v-aurora"] :is(.msg.agent, .msg.qc) .bubble {
+  border-radius: 6px 20px 20px 20px; padding: 12px 16px; backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--panel) 86%, transparent); border: 1px solid var(--hair); box-shadow: var(--shadow-1);
+}
+html[data-motion="v-aurora"] .msg.qc .bubble { background: color-mix(in srgb, var(--gold) 16%, var(--panel)); border-color: color-mix(in srgb, var(--gold) 40%, transparent); }
+html[data-motion="v-aurora"] :is(.msg.agent, .msg.qc) .who { padding: 0 0 2px 2px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+html[data-motion="v-aurora"] .msg.qc .who { color: var(--warn); }
+html[data-motion="v-aurora"] :is(.meta, .notice) { padding: 0 2px; }
+html[data-motion="v-aurora"] .source { border: 1px solid color-mix(in srgb, var(--ok) 36%, transparent); border-left: 4px solid var(--ok); border-radius: 14px; background: color-mix(in srgb, var(--panel) 86%, transparent); backdrop-filter: blur(14px); }
+html[data-motion="v-aurora"] .source:hover { border-color: var(--ok); transform: translateY(-2px); box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 24%, #000); }
+html[data-motion="v-aurora"] .ask textarea { border-radius: 999px; padding: 10px 18px; background: color-mix(in srgb, var(--panel) 70%, transparent); border-color: var(--hair); backdrop-filter: blur(10px); }
+html[data-motion="v-aurora"] .ask textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent), 0 6px 20px color-mix(in srgb, var(--accent) 20%, transparent); }
+html[data-motion="v-aurora"] .examples { border-radius: 18px; background: color-mix(in srgb, var(--panel) 84%, transparent); border-color: var(--hair); backdrop-filter: blur(20px); }
+html[data-motion="v-aurora"] .examples button { border-radius: 14px; }
+html[data-motion="v-aurora"] :is(.context-menu, .qc-item, .qc-detail, .card, .ticket, .weekly pre, .doc-pick button, .priority) { border-radius: 14px; }
+html[data-motion="v-aurora"] .tabs { gap: 3px; padding: 8px 12px 8px 20px; }   /* пять вкладок с счётчиками — в одну строку на колонне 1440 */
+html[data-motion="v-aurora"] .tab { margin-bottom: 0; padding: 8px 12px; border-radius: 999px; }
+html[data-motion="v-aurora"] .tab.active { background: color-mix(in srgb, var(--accent) 18%, transparent); border-bottom-color: transparent; color: var(--acc-text); }
+@media (prefers-reduced-motion: no-preference) {
+  html[data-motion="v-aurora"] body::before { animation: aur-drift 6s ease-out both; }   /* один медленный выдох, не бесконечность */
+  html[data-motion="v-aurora"] .msg { animation: v-fade .22s ease-out both, aur-rise .7s var(--spring) both; }
+  html[data-motion="v-aurora"] .msg.user { animation-name: v-fade, aur-fly; }
+  html[data-motion="v-aurora"] :is(.examples, .context-menu) { animation: aur-pop .5s var(--bounce); transform-origin: top right; }
+  html[data-motion="v-aurora"] .app:not(.panel-closed) .panel { animation: aur-panel .5s var(--spring); }
+}
+@keyframes v-fade { from { opacity: 0; } }
+@keyframes aur-drift { to { transform: translate3d(5%, -3%, 0) rotate(8deg) scale(1.08); } }
+@keyframes aur-rise { from { transform: translateY(22px) scale(.94); filter: blur(10px); } }
+@keyframes aur-fly { from { transform: translateX(34px) scale(.86); filter: blur(8px); } }
+@keyframes aur-pop { from { opacity: 0; transform: scale(.84); } }
+@keyframes aur-panel { from { opacity: 0; transform: translateX(30px); filter: blur(8px); } }
+
+/* 2. СЛЭК — другая раскладка: список чатов уезжает в сайдбар, сообщения — без пузырей, с квадратными
+   аватарами; по наведению на ответ появляется «Копировать» */
+html[data-motion="v-slack"] .app { overflow: hidden; }
+html[data-motion="v-slack"] .chat {
+  display: grid; grid-template-columns: 264px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto;
+}
+html[data-motion="v-slack"] .chat-head {
+  grid-column: 1; grid-row: 1 / 4; display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+  padding: 16px 12px 12px; border-bottom: 0; border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 72%, var(--panel));
+}
+html[data-motion="v-slack"] .toolbar { flex-direction: column; align-items: stretch; gap: 12px; margin-top: 0; }
+html[data-motion="v-slack"] .head-note { display: flex; flex-direction: column; gap: 4px; margin-right: 0; padding: 0 6px; }
+html[data-motion="v-slack"] .chat-head h1 { font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+html[data-motion="v-slack"] .chat-head .limit-note { font-size: 11.5px; line-height: 1.45; color: color-mix(in srgb, var(--warn) 90%, var(--ink)); }
+html[data-motion="v-slack"] .examples-drop { order: -1; width: 100%; }   /* в сайдбаре список вопросов — над списком чатов */
+html[data-motion="v-slack"] .tools { order: -1; flex-direction: column; align-items: stretch; gap: 8px; }   /* «Тестовые вопросы» и «Почта» — строками сайдбара */
+html[data-motion="v-slack"] .mail-open { justify-content: flex-start; padding: 7px 10px; border: 1px dashed var(--line); border-radius: 8px; background: transparent; color: var(--muted); }
+html[data-motion="v-slack"] .mail-open:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); border-color: transparent; color: var(--ink); }
+html[data-motion="v-slack"] .examples-drop summary { width: 100%; justify-content: space-between; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 10px; background: transparent; color: var(--ink); }
+html[data-motion="v-slack"] .examples { left: 0; right: 0; width: auto; max-width: none; }
+html[data-motion="v-slack"] .chat-tabs { flex-direction: column; align-items: stretch; gap: 2px; margin-top: 0; }
+html[data-motion="v-slack"] .chat-chip {   /* строка списка чатов */
+  position: relative; padding: 7px 10px 7px 30px; border: 0; border-radius: 8px; background: transparent;
+  text-align: left; font-size: 14px; font-weight: 500; color: var(--muted);
+  transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease), padding-left var(--dur-1) var(--ease);
+}
+html[data-motion="v-slack"] .chat-chip::before { content: "#"; position: absolute; left: 11px; top: 50%; translate: 0 -50%; font-weight: 800; color: color-mix(in srgb, var(--muted) 80%, transparent); }
+html[data-motion="v-slack"] .chat-chip:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); color: var(--ink); padding-left: 34px; }
+html[data-motion="v-slack"] .chat-chip.active { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--ink); font-weight: 700; }
+html[data-motion="v-slack"] .chat-chip.active::before { color: var(--accent); }
+html[data-motion="v-slack"] .chat-chip input { width: 100%; padding: 4px 8px; border-radius: 6px; font-weight: 500; }
+html[data-motion="v-slack"] .chat-tabs .ghost { padding: 7px 10px 7px 30px; border: 1px dashed var(--line); border-radius: 8px; background: transparent; color: var(--muted); }
+html[data-motion="v-slack"] .chat-tabs .ghost:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); border-color: transparent; color: var(--ink); }
+html[data-motion="v-slack"] .dock {   /* док — в клетке ленты: та же точка, что в Авроре; сама пластина clickable не мешает ленте */
+  position: relative; top: auto; right: auto; grid-column: 2; grid-row: 1; justify-self: end; align-self: start; margin: 10px 14px 0 0; pointer-events: none;
+}
+html[data-motion="v-slack"] .dock-btn { pointer-events: auto; }
+html[data-motion="v-slack"] .messages { grid-column: 2; grid-row: 1; min-height: 0; padding: 62px 28px 20px; gap: 18px; }   /* сверху место под док */
+html[data-motion="v-slack"] .thinking { grid-column: 2; grid-row: 2; }
+html[data-motion="v-slack"] .composer { grid-column: 2; grid-row: 3; padding: 12px 20px 16px; }
+html[data-motion="v-slack"] .msg { max-width: 100%; }
+html[data-motion="v-slack"] :is(.msg.agent, .msg.qc, .msg.user) { position: relative; align-self: stretch; align-items: stretch; border-radius: 10px; transition: background-color var(--dur-1) var(--ease); }
+html[data-motion="v-slack"] :is(.msg.agent, .msg.qc) { padding: 6px 10px 6px 46px; }
+html[data-motion="v-slack"] .msg.user { padding: 6px 46px 6px 10px; }
+html[data-motion="v-slack"] :is(.msg.agent, .msg.qc, .msg.user):hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+html[data-motion="v-slack"] :is(.msg.agent, .msg.qc)::before {   /* квадратный аватар */
+  content: "Д"; position: absolute; left: 0; top: 7px; width: 36px; height: 36px; border-radius: 9px;
+  display: grid; place-items: center; font-size: 16px; font-weight: 800; color: var(--accent-ink);
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7c3aed));
+}
+html[data-motion="v-slack"] .msg.qc::before { content: "СК"; font-size: 12px; background: var(--gold); color: #1a1200; }
+html[data-motion="v-slack"] .msg.user::after {
+  content: "Вы"; position: absolute; right: 0; top: 7px; width: 36px; height: 36px; border-radius: 9px;
+  display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--ink); background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+html[data-motion="v-slack"] :is(.msg.agent, .msg.qc) .who { padding: 0 0 2px; font-size: 15px; font-weight: 700; color: var(--ink); }
+html[data-motion="v-slack"] .msg.agent .bubble { padding: 0; background: none; border: 0; border-radius: 0; font-size: 15px; line-height: 1.55; }
+html[data-motion="v-slack"] .msg.qc .bubble { padding: 9px 12px; background: color-mix(in srgb, var(--gold) 14%, transparent); border: 0; border-left: 3px solid var(--gold); border-radius: 0 8px 8px 0; }
+html[data-motion="v-slack"] .msg.user .bubble { padding: 10px 14px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); border-radius: 12px; }
+html[data-motion="v-slack"] :is(.meta, .notice) { padding: 4px 0 0; }
+html[data-motion="v-slack"] .source { border-radius: 10px; box-shadow: none; }
+html[data-motion="v-slack"] .ask {
+  padding: 4px 4px 4px 0; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+html[data-motion="v-slack"] .ask:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+html[data-motion="v-slack"] .ask textarea { padding: 9px 12px; border: 0; background: transparent; }
+html[data-motion="v-slack"] .ask textarea:focus { box-shadow: none; }
+html[data-motion="v-slack"] .ask textarea:focus-visible { outline: none; }   /* фокус показывает рамка всей панели ввода */
+html[data-motion="v-slack"] .ask .primary { align-self: center; padding: 7px 14px; border-radius: 8px; font-size: 13px; }
+html[data-motion="v-slack"] .msg-copy { right: 8px; }
+@media (max-width: 1100px) {
+  html[data-motion="v-slack"] .chat { grid-template-columns: 210px minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  html[data-motion="v-slack"] .chat { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; }
+  html[data-motion="v-slack"] .chat-head { grid-column: 1; grid-row: 1; max-height: 46vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  html[data-motion="v-slack"] .messages { grid-column: 1; grid-row: 2; }
+  html[data-motion="v-slack"] .thinking { grid-column: 1; grid-row: 3; }
+  html[data-motion="v-slack"] .composer { grid-column: 1; grid-row: 4; }
+  html[data-motion="v-slack"] .dock { grid-column: 1; grid-row: 2; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html[data-motion="v-slack"] .msg { animation: v-fade .26s cubic-bezier(.2, 0, 0, 1) both, slk-in .26s cubic-bezier(.2, 0, 0, 1) both; }
+  html[data-motion="v-slack"] :is(.examples, .context-menu) { animation: slk-menu .18s cubic-bezier(.2, 0, 0, 1); transform-origin: top; }
+  html[data-motion="v-slack"] .app:not(.panel-closed) .panel { animation: slk-panel .36s cubic-bezier(.2, 0, 0, 1); }
+}
+@keyframes slk-in { from { transform: translateY(8px); } }
+@keyframes slk-menu { from { opacity: 0; transform: translateY(-6px) scale(.98); } }
+@keyframes slk-panel { from { opacity: 0; transform: translateX(24px); } }
+
+/* вкладка «Настройки» (тестовый инструмент): выбор модели кнопками-переключателями (app.js: paintModelChips).
+   Список моделей из шапки переехал сюда; сам список (#model-note, его заполняет исполнитель) остаётся
+   хозяином выбора и скрыт — см. app.js, блок «вкладка „Настройки“» */
+.model-note { display: none !important; }
+.settings-title { margin: 0 0 4px; font-size: 15px; }
+.settings-note { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.model-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.model-chip { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; text-align: left; color: var(--ink); }
+.model-chip:hover { border-color: var(--accent); background: var(--hover); }
+.model-chip.active { border-color: var(--accent); color: var(--acc-text, var(--accent)); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent); }
+.settings-empty { color: var(--muted); font-size: 13px; }
+
+/* переключатель моделей на вкладке «Настройки» (кнопки .model-chip, тело #tab-settings) — здесь они получают
+   форму своего оформления; у весов этих правил выше базовых .model-chip, поэтому порядок в файле не важен */
+html[data-motion="v-aurora"] .model-chip { padding: 6px 14px; border-radius: 999px; background: color-mix(in srgb, var(--panel) 62%, transparent); border-color: var(--hair); backdrop-filter: blur(10px); }
+html[data-motion="v-aurora"] .model-chip:hover { border-color: color-mix(in srgb, var(--accent) 65%, transparent); background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--ink); }
+html[data-motion="v-aurora"] .model-chip.active { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 85%, #fff 15%), color-mix(in srgb, var(--accent) 50%, var(--aur-2) 50%)); border-color: transparent; color: var(--accent-ink); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 32%, transparent); }
+html[data-motion="v-slack"] .model-chip { border-radius: 8px; }
+html[data-motion="v-slack"] .model-chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+/* общее для вариантов: смысловые цвета базы не теряются, как ни меняй форму */
+html[data-motion] .source.kb { border-left-color: var(--gold); }
+html[data-motion] .source.kb .where { color: var(--warn); }
+html[data-motion] .option.picked { background: color-mix(in srgb, var(--ink) 7%, transparent); border-color: var(--line); color: var(--muted); transform: none; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  /* анимации вариантов и так объявлены только при no-preference; здесь гасим лишь пространственные hover-переходы */
+  html[data-motion] :is(.primary, .ghost, .chat-chip, .dock-btn, .model-chip, .examples-drop summary, .option, .source, .qc-item, .card):is(:hover, :active) { transform: none !important; }
+}
+
+.messages::-webkit-scrollbar, .tab-body::-webkit-scrollbar, .ticket pre::-webkit-scrollbar, .mail-list::-webkit-scrollbar { width: 10px; height: 10px; }
+.messages::-webkit-scrollbar-thumb, .tab-body::-webkit-scrollbar-thumb, .ticket pre::-webkit-scrollbar-thumb, .mail-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+.messages::-webkit-scrollbar-thumb:hover, .tab-body::-webkit-scrollbar-thumb:hover, .ticket pre::-webkit-scrollbar-thumb:hover, .mail-list::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
 @media (max-width: 900px) {
   .panel { position: fixed; right: 0; top: 0; bottom: 0; max-width: 92vw; box-shadow: -8px 0 24px rgba(0,0,0,.12); }
   .msg { max-width: 94%; }
 }
-
-/* ---- вкладка «Настройки»: выбор модели кнопками-переключателями ---- */
-.tabs { flex-wrap: wrap; }                            /* четыре вкладки на узкой колонне переносятся, а не обрезаются */
-.settings-title { margin: 0 0 4px; font-size: 15px; }
-.settings-note { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
-.model-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
-.model-chip { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px;
-  text-align: left; color: var(--ink); }
-.model-chip:hover { border-color: var(--accent); background: var(--hover); }
-.model-chip.active { border-color: var(--accent); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent); }
