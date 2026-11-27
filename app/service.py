@@ -77,10 +77,19 @@ class Service:
             self.engine.add(unit)
         return unit
 
+    def knowledge_of(self, owner):
+        """Какие записи базы знаний видны сотруднику: только ответы на его собственные запросы.
+
+        None — владелец не важен (прямая работа со службой, тесты): видны все.
+        """
+        if owner is None:
+            return None
+        return {'%s:%d' % (KNOWLEDGE, t['id']) for t in self.store.tickets('answered', owner=owner)}
+
     # ---- чат сотрудника ----
 
-    def new_session(self, mode='full', model=None):
-        return self.store.session(mode=mode, model=model if model in self.agents else None)['id']
+    def new_session(self, mode='full', model=None, owner=None):
+        return self.store.session(mode=mode, model=model if model in self.agents else None, owner=owner)['id']
 
     def set_model(self, session_id, model):
         """Переключить модель диалога (выбор в шапке чата); неизвестная модель — ошибка 400."""
@@ -96,13 +105,14 @@ class Service:
         """Агент на той модели, что выбрана в сессии; сессия без выбора — модель по умолчанию."""
         return self.agents.get(session.get('model') or None, self.agent)
 
-    def ask(self, session_id, text):
+    def ask(self, session_id, text, owner=None):
         text = ' '.join((text or '').split())
         if not text:
             raise ValueError('Вопрос пустой')
-        session = self.store.session(session_id)                 # новый идентификатор, если сессии не было
+        session = self.store.session(session_id, owner=owner)    # чужой идентификатор — своя чистая сессия
         session_id = session['id']
         agent = self.agent_for(session)                        # модель выбрана в сессии — переключатель в шапке чата
+        kb = self.knowledge_of(owner)                  # ответы службы качества видны только по своим запросам
         chatter = self.chatter(session_id)
         self.store.add_message(session_id, 'user', text)
         started = time.perf_counter()
@@ -113,7 +123,7 @@ class Service:
             decision = Decision(route=SMALLTALK, text=smalltalk_reply('steady' if steady else kind, EXAMPLES[0]))
         else:
             question, history = self.thread(session_id, text)
-            decision = agent.ask(question['question'], [tuple(h) for h in history])
+            decision = agent.ask(question['question'], [tuple(h) for h in history], kb=kb)
             if decision.route == SMALLTALK and (chatter >= CHATTER_LIMIT or not decision.text):
                 decision.text = smalltalk_reply('steady', EXAMPLES[0])   # разговор ушёл от темы — возвращаем к теме
         message = self.respond(session_id, question, history, decision, time.perf_counter() - started)
@@ -232,12 +242,12 @@ class Service:
 
     # ---- статистика ----
 
-    def analytics(self, days=None):
-        return self.store.analytics(days)
+    def analytics(self, days=None, owner=None):
+        return self.store.analytics(days, owner)
 
-    def weekly(self, days=7):
-        """Что внести в документацию или обновить в регламенте: частые вопросы без ответа."""
-        unanswered = self.store.analytics(days)['unanswered']
+    def weekly(self, days=7, owner=None):
+        """Что внести в документацию или обновить в регламенте: частые вопросы без ответа (свои)."""
+        unanswered = self.store.analytics(days, owner)['unanswered']
         if not unanswered:
             return {'days': days, 'proposals': [], 'text': 'Предложений нет.'}
         lines = ['Вопросы без ответа за %d дн.:' % days]

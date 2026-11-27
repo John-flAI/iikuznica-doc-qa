@@ -112,14 +112,14 @@ class ModelDecides(unittest.TestCase):
     def agent(self, reply, strongest):
         """Агент с поддельной моделью: близость найденного задаём сами, фрагменты модели не показываем."""
         agent = Agent(self.engine, chatter(reply))
-        agent.candidates = lambda query, scope=None: {'f1:1': (None, strongest, strongest)}
+        agent.candidates = lambda query, scope=None, kb=None: {'f1:1': (None, strongest, strongest)}
         agent.messages = lambda question, history, candidates: [{'role': 'user', 'content': 'фрагменты'}]
         agent.strongest = lambda found: strongest
         return agent
 
     def test_nothing_found_and_model_sees_small_talk(self):
         agent = Agent(self.engine, chatter('Здравствуйте! Отвечаю только по регламентам.'))
-        agent.candidates = lambda query, scope=None: {}
+        agent.candidates = lambda query, scope=None, kb=None: {}
         decision = agent.ask('Расскажи анекдот')
         self.assertEqual((decision.route, decision.text), ('smalltalk', 'Здравствуйте! Отвечаю только по регламентам.'))
 
@@ -133,7 +133,7 @@ class ModelDecides(unittest.TestCase):
 
     def test_unavailable_model_without_fragments_keeps_the_letter(self):
         agent = Agent(self.engine, FakeLLM(Reply(error='HTTP 429')))
-        agent.candidates = lambda query, scope=None: {}
+        agent.candidates = lambda query, scope=None, kb=None: {}
         self.assertEqual(agent.ask('Расскажи анекдот').route, 'not_found')
 
     def test_empty_reply_is_replaced_with_a_steady_answer(self):

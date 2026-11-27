@@ -80,11 +80,14 @@ class Stand(unittest.TestCase):
         self.assertEqual(self.client.post('/api/tickets/%d/send' % ticket).status_code, 409)   # повторно нельзя
         opened = self.client.get('/api/tickets?status=open').json()
         self.assertEqual([t['id'] for t in opened], [ticket])
+        self.assertEqual(self.client.post('/api/tickets/%d/answer' % ticket,
+                                          json={'answer': ''}).status_code, 400)   # пустой ответ — отклонён
         answered = self.client.post('/api/tickets/%d/answer' % ticket,
                                     json={'answer': 'Командировка оформляется заявкой в ERP.', 'author': 'Иван'}).json()
         self.assertEqual((answered['status'], answered['answered_by']), ('answered', 'Иван'))
-        self.assertEqual(self.client.post('/api/tickets/%d/answer' % ticket,
-                                          json={'answer': ''}).status_code, 400)
+        repeat = self.client.post('/api/tickets/%d/answer' % ticket, json={'answer': 'Другой ответ.'})
+        self.assertEqual(repeat.status_code, 409)          # повторный ответ закрыт отказом: он перезаписывал ответ
+        self.assertIn('уже ответили', repeat.json()['detail'])
         history = self.client.get('/api/session/' + reply['session_id']).json()['messages']
         self.assertEqual([m['role'] for m in history][-2:], ['system', 'qc'])
         self.assertIn('Командировка', history[-1]['text'])

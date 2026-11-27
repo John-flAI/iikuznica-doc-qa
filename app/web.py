@@ -80,6 +80,16 @@ class AnswerIn(BaseModel):
 
 def create_app(service=None, with_vectors=True, ask_limit=None):
     limiter = RateLimiter(config.ASK_LIMIT if ask_limit is None else ask_limit)
+
+    def owner_of(request: Request) -> str:
+        """Владелец запроса — тот же адрес, что у лимита вопросов: аккаунт создаётся по адресу.
+
+        Считаем один раз на запрос и передаём вниз: чужая история, чужие запросы и чужие ответы
+        службы качества этому владельцу не видны.
+        """
+        return address_key(client_ip(request.headers.get('x-forwarded-for'),
+                                     request.client.host if request.client else None))
+
     @asynccontextmanager
     async def lifespan(app):
         if not hasattr(app.state, 'service'):           # на сервере служба собирается при запуске
@@ -111,10 +121,12 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
 
     @app.post('/api/session')
     def session(request: Request, body: SessionIn | None = None):
-        return {'id': svc(request).new_session(model=body.model if body else None)}
+        return {'id': svc(request).new_session(model=body.model if body else None, owner=owner_of(request))}
 
     @app.post('/api/session/{session_id}/model')
     def session_model(session_id: str, body: ModelIn, request: Request):
+        if svc(request).store.session_for(session_id, owner_of(request)) is None:    # чужая сессия — не существует
+            raise HTTPException(404, 'нет такой сессии')
         try:
             return svc(request).set_model(session_id, body.model)
         except ValueError as e:
@@ -122,6 +134,9 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
 
     @app.get('/api/session/{session_id}')
     def history(session_id: str, request: Request, after: int = 0):
+        found = svc(request).store.session_for(session_id, owner_of(request))
+        if found is None:                     # чужая история для этого владельца не существует — не подсказываем
+            raise HTTPException(404, 'нет такой сессии')
         return {'id': session_id, 'messages': svc(request).store.messages(session_id, after)}
 
     @app.post('/api/ask')
@@ -130,28 +145,29 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
         if not text:
             # пустой вопрос не тратит лимит: проверяем до списания квоты (сервис ответил бы тем же)
             raise HTTPException(400, 'Вопрос пустой')
-        # адрес — из заголовка прокси (стенд слушает только локальный порт): лимит бережёт бюджет модели
-        allowed, wait = limiter.allow(address_key(client_ip(
-            request.headers.get('x-forwarded-for'), request.client.host if request.client else None)))
+        owner = owner_of(request)
+        # адрес — из заголовка прокси (стенд слушает только локальный порт): он же владелец сессии и запросов
+        allowed, wait = limiter.allow(owner)
         if not allowed:
             raise HTTPException(429, LIMIT_NOTICE % (limiter.limit, -(-wait // 60)),
                                 headers={'Retry-After': str(wait)})
         try:
-            return svc(request).ask(body.session_id, text)
+            return svc(request).ask(body.session_id, text, owner)
         except ValueError as e:
             raise HTTPException(400, str(e))
 
     @app.get('/api/tickets')
     def tickets(request: Request, status: str | None = None):
+        owner = owner_of(request)
         if status in ('draft', 'open', 'answered'):
-            return svc(request).store.tickets(status)
-        return [t for t in svc(request).store.tickets() if t['status'] != 'draft']
+            return svc(request).store.tickets(status, owner=owner)
+        return [t for t in svc(request).store.tickets(owner=owner) if t['status'] != 'draft']
 
     @app.post('/api/tickets/{ticket_id}/send')
     def send(ticket_id: int, request: Request):
         service = svc(request)
-        ticket = service.store.ticket(ticket_id)
-        if ticket is None:
+        ticket = service.store.ticket(ticket_id, owner=owner_of(request))
+        if ticket is None:                              # чужой запрос — как «нет такого», номер не подсказываем
             raise HTTPException(404, 'нет такого запроса')
         if ticket['status'] != 'draft':                 # повторная отправка уже отправленного письма
             raise HTTPException(409, 'запрос уже отправлен или на него уже ответили')
@@ -159,8 +175,14 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
 
     @app.post('/api/tickets/{ticket_id}/answer')
     def answer(ticket_id: int, body: AnswerIn, request: Request):
+        service = svc(request)
+        ticket = service.store.ticket(ticket_id, owner=owner_of(request))
+        if ticket is None:
+            raise HTTPException(404, 'нет такого запроса')
+        if ticket['status'] == 'answered':              # повторный ответ перезаписывал ответ и не обновлял базу знаний
+            raise HTTPException(409, 'на этот запрос уже ответили — повторный ответ не нужен')
         try:
-            return svc(request).answer(ticket_id, body.answer, body.author)
+            return service.answer(ticket_id, body.answer, body.author)
         except ValueError as e:
             raise HTTPException(400, str(e))
 
@@ -173,11 +195,11 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
 
     @app.get('/api/analytics')
     def analytics(request: Request, days: int | None = None):
-        return svc(request).analytics(days)
+        return svc(request).analytics(days, owner=owner_of(request))
 
     @app.get('/api/weekly')
     def weekly(request: Request, days: int = 7):
-        return svc(request).weekly(days)
+        return svc(request).weekly(days, owner=owner_of(request))
 
     for path in ('/', '/user', '/qc', '/analytics'):
         app.get(path)(lambda: FileResponse(STATIC / 'index.html'))
