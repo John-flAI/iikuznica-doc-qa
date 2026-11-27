@@ -63,6 +63,7 @@ def create_app(service=None, with_vectors=True):
         return {'ok': True, 'regulations': len(service.engine.corpus.docs) - (KNOWLEDGE in service.engine.corpus.docs),
                 'knowledge': sum(1 for u in service.engine.corpus.units if u.doc == KNOWLEDGE),
                 'model': config.LLM_MODEL, 'embeddings': config.EMBED_MODEL,
+                'model_served': service.store.served_model(),     # что реально ответило на последний запрос
                 'vectors': service.engine.search.vectors is not None, 'examples': EXAMPLES}
 
     @app.post('/api/session')

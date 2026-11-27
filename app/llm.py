@@ -12,7 +12,9 @@ import urllib.request
 from dataclasses import dataclass, field
 
 RETRY_STATUS = {429, 500, 502, 503, 504, 529}
-PAUSES = (2, 4, 8, 12)            # паузы перед повторами, секунды: волна перегрузки длится до минуты
+# Паузы перед повторами, секунды. Перегрузка бесплатной GLM-4.7-Flash в облаке — до половины вызовов,
+# но отказ приходит мгновенно и короткими сериями (замер 27.11: серии до семи подряд): чаще — важнее, чем дольше.
+PAUSES = (0.5, 1, 1.5, 2, 2, 3, 3, 4, 5)
 # Модели с «размышлением» тратят на него весь лимит и не успевают ответить. Выключаем тем
 # переключателем, который понимает сервер: Ollama — reasoning_effort, облако — thinking.
 NO_THINKING = {'reasoning_effort': 'none', 'thinking': {'type': 'disabled'}}
@@ -113,7 +115,8 @@ class LLMClient:
                     break
                 lost[0] += reply.prompt_tokens      # неудачная попытка тоже стоила токенов
                 lost[1] += reply.completion_tokens
-                time.sleep(pause)
+                if pause is not PAUSES[-1]:
+                    time.sleep(pause)
             if reply.ok:
                 break
             reply.model, reply.ok, reply.error = model, False, reply.error or 'нет ответа'

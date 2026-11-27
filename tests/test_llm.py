@@ -3,7 +3,7 @@
 import unittest
 from unittest import mock
 
-from app.llm import LLMClient, Reply, Usage, parse_json
+from app.llm import PAUSES, LLMClient, Reply, Usage, parse_json
 
 
 def overloaded():
@@ -55,17 +55,17 @@ class Client(unittest.TestCase):
         self.assertEqual((usage.calls, usage.prompt_tokens, usage.completion_tokens), (1, 300, 20))
 
     def test_fallback_model_takes_over_when_main_is_overloaded(self):
-        client = self.client([overloaded()] * 4 + [fine(model='reserve')], fallback_model='reserve')
+        client = self.client([overloaded()] * len(PAUSES) + [fine(model='reserve')], fallback_model='reserve')
         with mock.patch('app.llm.time.sleep'):
             reply = client.chat([])
-        self.assertEqual((reply.ok, reply.model, reply.attempts), (True, 'reserve', 5))
+        self.assertEqual((reply.ok, reply.model, reply.attempts), (True, 'reserve', len(PAUSES) + 1))
 
     def test_both_models_down_is_an_error_not_a_crash(self):
-        client = self.client([overloaded()] * 8, fallback_model='reserve')
+        client = self.client([overloaded()] * (2 * len(PAUSES)), fallback_model='reserve')
         with mock.patch('app.llm.time.sleep'):
             reply = client.chat([])
         self.assertFalse(reply.ok)
-        self.assertEqual(reply.attempts, 8)
+        self.assertEqual(reply.attempts, 2 * len(PAUSES))
 
     def test_truncated_answer_is_retried_with_a_bigger_budget(self):
         cut = Reply(text='{"action": "ans', ok=True, truncated=True, prompt_tokens=100, completion_tokens=600), False
@@ -74,6 +74,15 @@ class Client(unittest.TestCase):
             reply = client.chat([], max_tokens=600)
         self.assertEqual([budget for _, budget in client.log], [600, 1200])
         self.assertTrue(reply.ok)
+
+    def test_a_long_overload_streak_is_outlasted(self):
+        """Замер 27.11: у бесплатной Flash бывают семь отказов подряд — клиент должен пересидеть серию."""
+        client = self.client([overloaded()] * 7 + [fine()])
+        with mock.patch('app.llm.time.sleep') as sleep:
+            reply = client.chat([])
+        self.assertTrue(reply.ok)
+        self.assertEqual(reply.attempts, 8)
+        self.assertEqual(sleep.call_count, 7)              # после последней попытки уже не спим
 
     def test_client_error_is_not_retried(self):
         client = self.client([(Reply(error='HTTP 400'), False)])

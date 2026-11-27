@@ -43,6 +43,13 @@ class Stand(unittest.TestCase):
         health = self.client.get('/api/health').json()
         self.assertEqual(health['regulations'], 4)
         self.assertTrue(health['examples'])
+        self.assertIn('model_served', health)           # модель из ответа API, а не только из настроек
+
+    def test_health_shows_the_model_that_actually_answered(self):
+        """Провайдер может обслужить запрос другой моделью: показываем имя из ответа, а не из конфигурации."""
+        self.assertIsNone(self.client.get('/api/health').json()['model_served'])
+        self.client.post('/api/ask', json={'text': 'Сколько заявок может быть у одного ПА?'})
+        self.assertEqual(self.client.get('/api/health').json()['model_served'], 'fake')
 
     def test_new_session_is_created_on_request(self):
         first = self.client.post('/api/session').json()['id']

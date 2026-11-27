@@ -139,6 +139,11 @@ class Store:
                   reply.completion_tokens + reply.retry_completion_tokens, round(reply.seconds, 2),
                   int(reply.ok), reply.error or None)
 
+    def served_model(self):
+        """Модель, которая реально ответила на последний запрос (имя из ответа API, а не из настроек)."""
+        row = self._one('SELECT model FROM llm_calls WHERE ok=1 AND model IS NOT NULL ORDER BY id DESC LIMIT 1')
+        return row['model'] if row else None
+
     # ---- служба качества ----
 
     def create_ticket(self, session_id, question_id, question, context, email=''):
