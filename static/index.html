@@ -15,7 +15,6 @@
         <div class="head-note">
           <h1>ДокИИ</h1>
           <p class="limit-note" id="limit-note">Демонстрационный стенд ответов по регламенту: до 60 вопросов в час с одного IP.</p>
-          <p class="model-note" hidden id="model-note"><label for="model-switch">Модель:</label> <select id="model-switch" aria-label="Модель, которая отвечает на вопросы"></select></p>
         </div>
         <details class="examples-drop" id="examples-drop" hidden>
           <summary>Тестовые вопросы</summary>
@@ -41,9 +40,9 @@
       </form>
     </footer>
   </main>
-  <button class="rail" id="rail" type="button" title="Служба качества, документы и статистика">
+  <button class="rail" id="rail" type="button" title="Служба качества, документы, статистика и настройки">
     <span class="rail-arrow">◂</span>
-    <span class="rail-label">Служба качества · Документы · Статистика</span>
+    <span class="rail-label">Служба качества · Документы · Статистика · Настройки</span>
   </button>
   <aside class="panel" id="panel">
     <button class="panel-collapse" id="panel-collapse" type="button" title="Свернуть колонну">▸</button>
@@ -51,6 +50,7 @@
       <button class="tab active" type="button" data-tab="qc">Служба качества</button>
       <button class="tab" type="button" data-tab="docs">Документы</button>
       <button class="tab" type="button" data-tab="stats">Статистика</button>
+      <button class="tab" type="button" data-tab="settings" id="tab-settings-button" hidden>Настройки</button>
       <button class="tab close" id="panel-close" type="button" title="Свернуть">▸</button>
     </nav>
     <section class="tab-body active" id="tab-qc">
@@ -66,6 +66,11 @@
       <div class="doc" id="doc"></div>
     </section>
     <section class="tab-body" id="tab-stats"></section>
+    <section class="tab-body" id="tab-settings">
+      <h2 class="settings-title">Модель</h2>
+      <p class="settings-note">Модель, которая отвечает на вопросы. Выбор действует сразу во всех чатах и запоминается в браузере.</p>
+      <div class="model-tabs" id="model-switch" role="radiogroup" aria-label="Модель, которая отвечает на вопросы"></div>
+    </section>
   </aside>
 </div>
 <svg class="flight" id="flight"><path id="flight-path" d=""/><circle class="fly-dot" id="fly-dot" r="5"/></svg>

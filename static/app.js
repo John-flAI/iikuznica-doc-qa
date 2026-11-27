@@ -519,7 +519,7 @@ function applyTheme(name) {
 document.querySelectorAll('.theme-tabs .theme-chip').forEach((b) => b.addEventListener('click', () => applyTheme(b.dataset.theme)));
 applyTheme(localStorage.getItem('regqa.theme') || 'steel');
 
-/* ---- модели на выбор: переключатель в шапке, выбор хранится в сессии ---- */
+/* ---- модели на выбор: кнопки-переключатели на вкладке «Настройки», выбор хранится в сессии ---- */
 
 async function newSession() {
   const model = localStorage.getItem('regqa.model');
@@ -527,17 +527,38 @@ async function newSession() {
 }
 
 function setupModels(health) {
-  const pick = $('#model-switch');
-  $('#model-note').hidden = false;
-  health.models.forEach((m) => pick.append(new Option(m.label, m.id)));
-  const saved = localStorage.getItem('regqa.model');
-  pick.value = health.models.some((m) => m.id === saved) ? saved : health.model_default;
-  pick.addEventListener('change', async () => {
-    const chosen = pick.value;
-    localStorage.setItem('regqa.model', chosen);
-    try { await api('/api/session/' + sid + '/model', { method: 'POST', body: JSON.stringify({ model: chosen }) }); }
-    catch (error) { localStorage.removeItem('regqa.model'); pick.value = health.model_default; }
+  // вкладка «Настройки» правой колонны: кнопки-переключатели, действующая модель подсвечена
+  const group = $('#model-switch');
+  $('#tab-settings-button').hidden = false;
+  let current = localStorage.getItem('regqa.model');
+  if (!health.models.some((m) => m.id === current)) current = health.model_default;
+  const paint = () => group.querySelectorAll('.model-chip').forEach((node) => {
+    const on = node.dataset.model === current;
+    node.classList.toggle('active', on);
+    node.setAttribute('aria-checked', on ? 'true' : 'false');
   });
+  const choose = async (id) => {                      // действует сразу во всех чатах и запоминается для новых
+    if (id === current) return;
+    current = id;
+    paint();
+    try {
+      const results = await Promise.allSettled(chats.map((chat) => api('/api/session/' + chat.sid + '/model',
+        { method: 'POST', body: JSON.stringify({ model: id }) })));
+      if (!results.some((r) => r.status === 'fulfilled')) throw new Error('модель не переключилась');
+      localStorage.setItem('regqa.model', id);
+    } catch (error) {
+      current = health.model_default;
+      localStorage.removeItem('regqa.model');
+      paint();
+    }
+  };
+  health.models.forEach((m) => {
+    const node = button('model-chip', m.label, () => choose(m.id));
+    node.dataset.model = m.id;
+    node.setAttribute('role', 'radio');
+    group.append(node);
+  });
+  paint();
 }
 
 /* ---- старт ---- */

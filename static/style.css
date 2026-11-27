@@ -224,3 +224,13 @@ html[data-theme="graphite"] {
   .panel { position: fixed; right: 0; top: 0; bottom: 0; max-width: 92vw; box-shadow: -8px 0 24px rgba(0,0,0,.12); }
   .msg { max-width: 94%; }
 }
+
+/* ---- вкладка «Настройки»: выбор модели кнопками-переключателями ---- */
+.tabs { flex-wrap: wrap; }                            /* четыре вкладки на узкой колонне переносятся, а не обрезаются */
+.settings-title { margin: 0 0 4px; font-size: 15px; }
+.settings-note { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.model-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.model-chip { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px;
+  text-align: left; color: var(--ink); }
+.model-chip:hover { border-color: var(--accent); background: var(--hover); }
+.model-chip.active { border-color: var(--accent); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent); }
