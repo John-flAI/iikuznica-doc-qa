@@ -200,6 +200,19 @@ class FieldLimits(unittest.TestCase):
                                      json={'answer': 'Командировка оформляется заявкой в ERP.'}).status_code, 200)
 
 
+class NoStaleClient(unittest.TestCase):
+    """После обновления стенда браузер не должен смешать новую страницу со старым app.js: страницы и статика —
+    без эвристического кэша, браузер каждый раз сверяет файл по ETag."""
+
+    def test_pages_and_static_ask_the_browser_to_revalidate(self):
+        client = TestClient(create_app(None, with_vectors=False))
+        for path in ('/', '/user', '/qc', '/analytics', '/static/app.js', '/static/style.css'):
+            self.assertEqual(client.get(path).headers.get('cache-control'), 'no-cache', path)
+        script = client.get('/static/app.js')
+        same = client.get('/static/app.js', headers={'if-none-match': script.headers['etag']})
+        self.assertEqual((same.status_code, same.headers.get('cache-control')), (304, 'no-cache'))
+
+
 class ModelSwitch(unittest.TestCase):
     """Переключатель моделей: каталог в health, выбор хранится в сессии, вопрос идёт агенту выбранной модели."""
     CATALOG = [{'id': 'default', 'label': 'Модель по умолчанию', 'model': 'm1'},

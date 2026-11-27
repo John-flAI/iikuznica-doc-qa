@@ -105,6 +105,16 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
     if service is not None:                              # в тестах служба передана — доступна сразу
         app.state.service = service
     app.mount('/static', StaticFiles(directory=STATIC), name='static')
+    PAGES = ('/', '/user', '/qc', '/analytics')
+
+    @app.middleware('http')
+    async def no_stale_client(request, call_next):
+        """Страницы и статика — без эвристического кэша браузера: после обновления стенда новая страница не должна
+        смешаться со старым app.js. Браузер каждый раз сверяет ETag — файл не менялся, ответ 304 без тела."""
+        response = await call_next(request)
+        if request.url.path.startswith('/static/') or request.url.path in PAGES:
+            response.headers['cache-control'] = 'no-cache'
+        return response
 
     def svc(request: Request) -> Service:
         return request.app.state.service
@@ -229,7 +239,7 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
     def weekly(request: Request, days: int = 7):
         return svc(request).weekly(days, owner=owner_of(request))
 
-    for path in ('/', '/user', '/qc', '/analytics'):
+    for path in PAGES:
         app.get(path)(lambda: FileResponse(STATIC / 'index.html'))
     return app
 
