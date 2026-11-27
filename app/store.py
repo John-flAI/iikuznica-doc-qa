@@ -15,7 +15,9 @@ UNSET = object()          # «поле не передано» — отлича�
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY, created TEXT, mode TEXT, email TEXT DEFAULT '', model TEXT DEFAULT '',
-    owner TEXT DEFAULT '');               -- владелец сессии: адрес сотрудника (изоляция по адресу)
+    owner TEXT DEFAULT '',                -- владелец сессии: адрес сотрудника (изоляция по адресу)
+    name TEXT DEFAULT '',                 -- имя чата на вкладке; пустое — без имени
+    closed INTEGER DEFAULT 0);            -- закрытый чат ведёт себя как несуществующий, данные остаются
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, ts TEXT, role TEXT, text TEXT, meta TEXT);
 CREATE TABLE IF NOT EXISTS questions (
@@ -49,6 +51,10 @@ class Store:
                 conn.execute("ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT ''")   # база переживает обновление
             if 'owner' not in columns:
                 conn.execute("ALTER TABLE sessions ADD COLUMN owner TEXT DEFAULT ''")   # старые сессии — без владельца
+            if 'name' not in columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN name TEXT DEFAULT ''")    # старые чаты — без имени
+            if 'closed' not in columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN closed INTEGER DEFAULT 0")  # старые чаты — открыты
 
     def connect(self):
         conn = getattr(self.local, 'conn', None)
@@ -73,22 +79,23 @@ class Store:
     # ---- сессии и диалог ----
 
     def session(self, session_id=None, mode='full', email='', model=None, owner=None):
-        """Сессия владельца: чужой идентификатор не даёт доступа — создаётся своя сессия с пустой историей.
+        """Сессия владельца: чужой или закрытый идентификатор не даёт доступа — создаётся своя сессия с пустой историей.
 
         Сессии нет → создаётся с этим владельцем; владелец совпал → возвращается;
         владелец у записи пустой (старая база) → присваивается первому обратившемуся;
-        владелец другой → новая сессия с теми же mode/model/email, но со своей историей.
+        владелец другой или чат закрыт → новая сессия с новым идентификатором, теми же mode/model/email
+        и чистой историей.
         owner=None — владелец не важен (прямая работа с хранилищем): как раньше.
         """
         found = self._one('SELECT * FROM sessions WHERE id=?', session_id) if session_id else None
         if found and owner is not None:
-            if not found['owner']:                     # старая запись — первому обратившемуся
+            if not found['closed'] and not found['owner']:     # старая запись — первому обратившемуся
                 self._run('UPDATE sessions SET owner=? WHERE id=?', owner, session_id)
                 return self._one('SELECT * FROM sessions WHERE id=?', session_id)
-            if found['owner'] == owner:
+            if not found['closed'] and found['owner'] == owner:
                 return found
             session_id, mode, email, model = uuid.uuid4().hex[:12], found['mode'], found['email'], found['model']
-            found = None                               # чужая сессия — своя такая же, история чистая
+            found = None                       # чужая или закрытая — своя новая сессия, история чистая
         if found:
             return found
         session_id = session_id or uuid.uuid4().hex[:12]
@@ -97,17 +104,40 @@ class Store:
         return self._one('SELECT * FROM sessions WHERE id=?', session_id)
 
     def session_for(self, session_id, owner):
-        """Сессия этого владельца для чтения или None: нет такой — None, чужая — тоже None.
+        """Сессия этого владельца для чтения или None: нет такой, чужая или закрытая — None.
 
         Старую запись без владельца присваиваем первому обратившемуся — после этого она только его.
         В отличие от session() ничего не создаёт: несуществующий идентификатор остаётся несуществующим.
         """
         found = self._one('SELECT * FROM sessions WHERE id=?', session_id)
-        if not found or (found['owner'] and found['owner'] != owner):
+        if not found or found['closed'] or (found['owner'] and found['owner'] != owner):
             return None
         if not found['owner']:
             self._run('UPDATE sessions SET owner=? WHERE id=?', owner, session_id)
             found['owner'] = owner
+        return found
+
+    def sessions_of(self, owner, limit=50):
+        """Свои открытые сессии, сначала недавние по активности: {id, name, created, last}.
+
+        last — время последнего сообщения; сообщений нет — время создания. Закрытые и чужие не попадают.
+        """
+        return self._all(
+            "SELECT s.id, s.name, s.created, "
+            "COALESCE((SELECT MAX(ts) FROM messages WHERE session_id=s.id), s.created) last "
+            "FROM sessions s WHERE s.owner=? AND s.closed=0 ORDER BY last DESC LIMIT ?", owner, limit)
+
+    def rename_session(self, session_id, name):
+        """Дать чату имя (пустое — имя по умолчанию); владелец и открытость проверяет маршрут."""
+        self._run('UPDATE sessions SET name=? WHERE id=?', name, session_id)
+        return self._one('SELECT id, name FROM sessions WHERE id=?', session_id)
+
+    def close_session(self, session_id, owner):
+        """Закрыть свою открытую сессию: пометка closed=1, данные остаются. Чужая/закрытая/нет — None."""
+        found = self.session_for(session_id, owner)
+        if found is None:
+            return None
+        self._run('UPDATE sessions SET closed=1 WHERE id=?', session_id)
         return found
 
     def set_model(self, session_id, model):

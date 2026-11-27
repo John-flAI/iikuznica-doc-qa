@@ -37,6 +37,7 @@ def build(with_vectors=True):
 QUESTION_LIMIT = 500        # знаков: слишком длинный вопрос не доходит до модели
 ANSWER_LIMIT = 2000         # знаков в ответе службы качества
 AUTHOR_LIMIT = 100          # знаков в имени автора
+NAME_LIMIT = 100            # знаков в имени чата на вкладке
 
 
 class AskIn(BaseModel):
@@ -57,6 +58,10 @@ class SessionIn(BaseModel):
 
 class ModelIn(BaseModel):
     model: str
+
+
+class NameIn(BaseModel):
+    name: str = ''                # имя чата на вкладке; пустое — имя по умолчанию
 
 
 class AnswerIn(BaseModel):
@@ -124,6 +129,27 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
     @app.post('/api/session')
     def session(request: Request, body: SessionIn | None = None):
         return {'id': svc(request).new_session(model=body.model if body else None, owner=owner_of(request))}
+
+    @app.get('/api/sessions')
+    def sessions(request: Request):
+        return svc(request).store.sessions_of(owner_of(request))
+
+    @app.post('/api/session/{session_id}/name')
+    def session_name(session_id: str, body: NameIn, request: Request):
+        store = svc(request).store
+        if store.session_for(session_id, owner_of(request)) is None:    # чужая, закрытая или нет такой
+            raise HTTPException(404, 'нет такой сессии')
+        name = (body.name or '').strip()                # по краям обрезаем; пустое — имя по умолчанию
+        if len(name) > NAME_LIMIT:
+            raise HTTPException(400, 'Имя слишком длинное: не более %d знаков' % NAME_LIMIT)
+        renamed = store.rename_session(session_id, name)
+        return {'id': session_id, 'name': renamed['name']}
+
+    @app.delete('/api/session/{session_id}')
+    def session_close(session_id: str, request: Request):
+        if svc(request).store.close_session(session_id, owner_of(request)) is None:   # чужая, закрытая или нет такой
+            raise HTTPException(404, 'нет такой сессии')
+        return {'id': session_id, 'closed': True}
 
     @app.post('/api/session/{session_id}/model')
     def session_model(session_id: str, body: ModelIn, request: Request):
