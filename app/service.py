@@ -60,9 +60,11 @@ def kb_unit(ticket):
 
 
 class Service:
-    def __init__(self, engine, llm, store):
+    def __init__(self, engine, llm, store, llms=None, catalog=()):
         self.engine, self.llm, self.store = engine, llm, store
-        self.agent = Agent(engine, llm)
+        self.catalog = [dict(item) for item in catalog]      # модели на выбор: [{id, label, model}]; первая — по умолчанию
+        self.agents = {key: Agent(engine, client) for key, client in (llms or {}).items()}   # своя модель — свой агент
+        self.agent = self.agents.get(self.catalog[0]['id']) if self.catalog and self.agents else Agent(engine, llm)
         for ticket in store.tickets('answered'):      # база знаний переживает перезапуск
             self.learn(ticket)
 
@@ -77,14 +79,30 @@ class Service:
 
     # ---- чат сотрудника ----
 
-    def new_session(self, mode='full'):
-        return self.store.session(mode=mode)['id']
+    def new_session(self, mode='full', model=None):
+        return self.store.session(mode=mode, model=model if model in self.agents else None)['id']
+
+    def set_model(self, session_id, model):
+        """Переключить модель диалога (выбор в шапке чата); неизвестная модель — ошибка 400."""
+        if model not in self.agents:
+            raise ValueError('Такой модели на стенде нет')
+        self.store.set_model(session_id, model)
+        return {'id': session_id, 'model': model}
+
+    def models(self):
+        return [{'id': item['id'], 'label': item['label'], 'model': item['model']} for item in self.catalog]
+
+    def agent_for(self, session):
+        """Агент на той модели, что выбрана в сессии; сессия без выбора — модель по умолчанию."""
+        return self.agents.get(session.get('model') or None, self.agent)
 
     def ask(self, session_id, text):
         text = ' '.join((text or '').split())
         if not text:
             raise ValueError('Вопрос пустой')
-        session_id = self.store.session(session_id)['id']     # новый идентификатор, если сессии не было
+        session = self.store.session(session_id)                 # новый идентификатор, если сессии не было
+        session_id = session['id']
+        agent = self.agent_for(session)                        # модель выбрана в сессии — переключатель в шапке чата
         chatter = self.chatter(session_id)
         self.store.add_message(session_id, 'user', text)
         started = time.perf_counter()
@@ -95,7 +113,7 @@ class Service:
             decision = Decision(route=SMALLTALK, text=smalltalk_reply('steady' if steady else kind, EXAMPLES[0]))
         else:
             question, history = self.thread(session_id, text)
-            decision = self.agent.ask(question['question'], [tuple(h) for h in history])
+            decision = agent.ask(question['question'], [tuple(h) for h in history])
             if decision.route == SMALLTALK and (chatter >= CHATTER_LIMIT or not decision.text):
                 decision.text = smalltalk_reply('steady', EXAMPLES[0])   # разговор ушёл от темы — возвращаем к теме
         message = self.respond(session_id, question, history, decision, time.perf_counter() - started)

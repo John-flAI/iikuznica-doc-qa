@@ -14,7 +14,7 @@ UNSET = object()          # «поле не передано» — отлича�
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY, created TEXT, mode TEXT, email TEXT DEFAULT '');
+    id TEXT PRIMARY KEY, created TEXT, mode TEXT, email TEXT DEFAULT '', model TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, ts TEXT, role TEXT, text TEXT, meta TEXT);
 CREATE TABLE IF NOT EXISTS questions (
@@ -43,6 +43,8 @@ class Store:
         self.local = threading.local()
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            if 'model' not in {row[1] for row in conn.execute('PRAGMA table_info(sessions)')}:
+                conn.execute("ALTER TABLE sessions ADD COLUMN model TEXT DEFAULT ''")   # база переживает обновление
 
     def connect(self):
         conn = getattr(self.local, 'conn', None)
@@ -66,13 +68,17 @@ class Store:
 
     # ---- сессии и диалог ----
 
-    def session(self, session_id=None, mode='full', email=''):
+    def session(self, session_id=None, mode='full', email='', model=None):
         found = self._one('SELECT * FROM sessions WHERE id=?', session_id) if session_id else None
         if found:
             return found
         session_id = session_id or uuid.uuid4().hex[:12]
-        self._run('INSERT INTO sessions(id, created, mode, email) VALUES(?,?,?,?)', session_id, now(), mode, email)
+        self._run('INSERT INTO sessions(id, created, mode, email, model) VALUES(?,?,?,?,?)',
+                  session_id, now(), mode, email, model or '')
         return self._one('SELECT * FROM sessions WHERE id=?', session_id)
+
+    def set_model(self, session_id, model):
+        self._run('UPDATE sessions SET model=? WHERE id=?', model or '', session_id)
 
     def set_email(self, session_id, email):
         self._run('UPDATE sessions SET email=? WHERE id=?', email, session_id)

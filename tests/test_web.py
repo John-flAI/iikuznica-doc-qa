@@ -197,5 +197,71 @@ class FieldLimits(unittest.TestCase):
                                      json={'answer': 'Командировка оформляется заявкой в ERP.'}).status_code, 200)
 
 
+class ModelSwitch(unittest.TestCase):
+    """Переключатель моделей: каталог в health, выбор хранится в сессии, вопрос идёт агенту выбранной модели."""
+    CATALOG = [{'id': 'default', 'label': 'Модель по умолчанию', 'model': 'm1'},
+               {'id': 'second', 'label': 'Вторая модель', 'model': 'm2'}]
+
+    def stand(self, with_catalog=True):
+        calls = []
+
+        def fake(model_id):
+            llm = FakeLLM(ok(model_id))              # не-JSON → агент честно отвечает «нет ответа»
+            original = llm.chat
+
+            def chat(messages, max_tokens=600, temperature=0):
+                calls.append(model_id)
+                return original(messages, max_tokens, temperature)
+            llm.chat = chat
+            return llm
+        engine = load_engine(DATA, with_vectors=False)
+        store = Store(Path(tempfile.mkdtemp()) / 'state.db')
+        service = (Service(engine, fake('default'), store, llms={m['id']: fake(m['id']) for m in self.CATALOG},
+                           catalog=self.CATALOG) if with_catalog else Service(engine, fake('default'), store))
+        return TestClient(create_app(service, with_vectors=False, ask_limit=0)), calls
+
+    @staticmethod
+    def ask(client, sid):
+        return client.post('/api/ask', json={'session_id': sid, 'text': 'Как оформить командировку сотрудника?'})
+
+    def test_health_lists_the_models_and_the_default(self):
+        client, _ = self.stand()
+        health = client.get('/api/health').json()
+        self.assertEqual(([m['id'] for m in health['models']], health['model_default']), (['default', 'second'], 'default'))
+
+    def test_without_a_catalog_the_stand_has_a_single_model(self):
+        client, _ = self.stand(with_catalog=False)
+        health = client.get('/api/health').json()
+        self.assertEqual((health['models'], health['model_default']), ([], None))
+
+    def test_session_without_a_choice_uses_the_default_model(self):
+        client, calls = self.stand()
+        sid = client.post('/api/session', json={}).json()['id']
+        self.assertEqual(self.ask(client, sid).status_code, 200)
+        self.assertEqual(calls, ['default'])
+
+    def test_model_chosen_when_the_session_is_created_answers(self):
+        client, calls = self.stand()
+        sid = client.post('/api/session', json={'model': 'second'}).json()['id']
+        self.ask(client, sid)
+        self.assertEqual(calls, ['second'])
+
+    def test_switching_the_model_changes_who_answers_next(self):
+        client, calls = self.stand()
+        sid = client.post('/api/session', json={}).json()['id']
+        self.ask(client, sid)
+        switched = client.post('/api/session/%s/model' % sid, json={'model': 'second'})
+        self.assertEqual((switched.status_code, switched.json()), (200, {'id': sid, 'model': 'second'}))
+        self.ask(client, sid)
+        self.assertEqual(calls, ['default', 'second'])
+
+    def test_unknown_model_is_declined_and_never_breaks_the_chat(self):
+        client, calls = self.stand()
+        sid = client.post('/api/session', json={'model': 'no-such-model'}).json()['id']
+        self.assertEqual(client.post('/api/session/%s/model' % sid, json={'model': 'no-such-model'}).status_code, 400)
+        self.ask(client, sid)
+        self.assertEqual(calls, ['default'])
+
+
 if __name__ == '__main__':
     unittest.main()

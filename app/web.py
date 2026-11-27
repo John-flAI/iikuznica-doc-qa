@@ -28,7 +28,10 @@ LIMIT_NOTICE = ('Демонстрационный стенд: не более %d
 def build(with_vectors=True):
     """Собрать службу из того, что задано окружением."""
     llm = LLMClient(config.LLM_BASE_URL, config.LLM_MODEL, config.LLM_API_KEY, config.LLM_FALLBACK_MODEL)
-    return Service(load_engine(with_vectors=with_vectors), llm, Store(config.DB_PATH))
+    catalog = config.models()                 # модели на выбор — из LLM_MODELS; каждая со своим ключом из окружения
+    clients = {item['id']: LLMClient(item['base_url'], item['model'], item['key']) for item in catalog}
+    return Service(load_engine(with_vectors=with_vectors), llm, Store(config.DB_PATH), llms=clients,
+                   catalog=[{k: item[k] for k in ('id', 'label', 'model')} for item in catalog])
 
 
 QUESTION_LIMIT = 500        # знаков: слишком длинный вопрос не доходит до модели
@@ -46,6 +49,14 @@ class AskIn(BaseModel):
         if isinstance(value, str) and len(value) > QUESTION_LIMIT:
             raise ValueError('Вопрос слишком длинный: не более %d знаков' % QUESTION_LIMIT)
         return value
+
+
+class SessionIn(BaseModel):
+    model: str | None = None      # id модели из списка в /api/health; нет — модель по умолчанию
+
+
+class ModelIn(BaseModel):
+    model: str
 
 
 class AnswerIn(BaseModel):
@@ -95,11 +106,19 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
                 'model': config.LLM_MODEL, 'embeddings': config.EMBED_MODEL,
                 'model_served': service.store.served_model(),     # что реально ответило на последний запрос
                 'vectors': service.engine.search.vectors is not None, 'examples': EXAMPLES,
-                'ask_limit': limiter.limit}     # вопросов в час с одного адреса; клиент пишет это на стенде
+                'ask_limit': limiter.limit,     # вопросов в час с одного адреса; клиент пишет это на стенде
+                'models': service.models(), 'model_default': service.catalog[0]['id'] if service.catalog else None}
 
     @app.post('/api/session')
-    def session(request: Request):
-        return {'id': svc(request).new_session()}
+    def session(request: Request, body: SessionIn | None = None):
+        return {'id': svc(request).new_session(model=body.model if body else None)}
+
+    @app.post('/api/session/{session_id}/model')
+    def session_model(session_id: str, body: ModelIn, request: Request):
+        try:
+            return svc(request).set_model(session_id, body.model)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     @app.get('/api/session/{session_id}')
     def history(session_id: str, request: Request, after: int = 0):

@@ -410,10 +410,31 @@ $('#new-dialog').addEventListener('click', async () => {
   sid = null; lastId = 0; sources = []; shown.clear(); pendingUser = null;
   messagesEl.replaceChildren();
   welcome();
-  const session = await api('/api/session', { method: 'POST' });
+  const session = await newSession();
   sid = session.id;
   localStorage.setItem('regqa.sid', sid);
 });
+
+/* ---- модели на выбор: переключатель в шапке, выбор хранится в сессии ---- */
+
+async function newSession() {
+  const model = localStorage.getItem('regqa.model');
+  return api('/api/session', { method: 'POST', body: JSON.stringify(model ? { model } : {}) });
+}
+
+function setupModels(health) {
+  const pick = $('#model-switch');
+  $('#model-note').hidden = false;
+  health.models.forEach((m) => pick.append(new Option(m.label, m.id)));
+  const saved = localStorage.getItem('regqa.model');
+  pick.value = health.models.some((m) => m.id === saved) ? saved : health.model_default;
+  pick.addEventListener('change', async () => {
+    const chosen = pick.value;
+    localStorage.setItem('regqa.model', chosen);
+    try { await api('/api/session/' + sid + '/model', { method: 'POST', body: JSON.stringify({ model: chosen }) }); }
+    catch (error) { localStorage.removeItem('regqa.model'); pick.value = health.model_default; }
+  });
+}
 
 /* ---- старт ---- */
 
@@ -424,6 +445,7 @@ $('#new-dialog').addEventListener('click', async () => {
     health.examples.forEach((question) => examples.append(button('', question, () => send(question))));
     if (health.ask_limit > 0) $('#limit-note').textContent =
       'Демонстрационный стенд: до ' + health.ask_limit + ' вопросов в час с одного адреса — так мы бережём бюджет модели.';
+    if (health.models && health.models.length > 1) setupModels(health);
   } catch (error) { /* примеры не обязательны */ }
   try {
     ticketMap = Object.fromEntries((await api('/api/tickets')).map((ticket) => [ticket.id, ticket]));
@@ -436,7 +458,7 @@ $('#new-dialog').addEventListener('click', async () => {
   }
   if (!sid) {
     try {
-      const session = await api('/api/session', { method: 'POST' });
+      const session = await newSession();
       sid = session.id;
       localStorage.setItem('regqa.sid', sid);
     } catch (error) {
