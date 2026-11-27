@@ -8,6 +8,7 @@ const panel = $('#panel'), docEl = $('#doc'), docPick = $('#doc-pick');
 const ROUTE_NAMES = {
   answer: 'ответ по регламенту', clarify: 'уточняющий вопрос', not_found: 'нет ответа в регламентах',
   unresolved: 'однозначного ответа нет', degraded: 'модель недоступна', qc: 'ответ службы качества',
+  kb: 'ответ из базы знаний — ответ службы качества',
 };
 const CHECK_NAMES = {
   passed: 'проверка на опору в регламенте пройдена', rewritten: 'текст переписан после проверки',
@@ -86,11 +87,12 @@ function ticketBlock(message) {
     const row = el('div', 'row');
     row.append(button('primary gold', 'Отправить в службу качества', async (event) => {
       event.target.disabled = true;
+      const from = event.target.getBoundingClientRect();     // кнопку заменит «Отправлено» — запоминаем, где она была
       try {
         await api('/api/tickets/' + ticket.id + '/send', { method: 'POST' });
         ticketMap[ticket.id] = { status: 'open' };
         row.replaceWith(el('div', 'sent', 'Отправлено. Ответ службы качества появится в этом чате.'));
-        await flyToPanel(event.target);
+        await flyToPanel(from);
         openPanel('qc');
       } catch (error) {
         row.replaceWith(el('div', 'notice', 'Не получилось отправить: ' + error.message));
@@ -121,7 +123,7 @@ function show(entry) {
     messagesEl.append(el('div', 'msg system', entry.text));
   } else if (entry.role === 'qc') {
     const node = el('div', 'msg qc');
-    node.append(el('div', 'who', 'Служба качества' + (meta.author ? ' · ' + meta.author : '') +
+    node.append(el('div', 'who', 'Служба качества' + (meta.author && meta.author !== 'Служба качества' ? ' · ' + meta.author : '') +
                    (meta.ticket_id ? ' · запрос №' + meta.ticket_id : '')),
                 el('div', 'bubble', entry.text));
     if (meta.ticket_id) node.append(el('div', 'meta', 'Добавлено в базу знаний: повторный вопрос агент ответит сам.'));
@@ -153,7 +155,8 @@ function show(entry) {
     }
     if (meta.ticket) node.append(ticketBlock({ meta }));
     if (meta.retry) node.append(button('primary', 'Повторить вопрос', () => send(lastQuestion)));
-    const facts = [ROUTE_NAMES[meta.route] || meta.route];
+    const fromKnowledge = (meta.sources || []).some((source) => source.doc === 'kb');
+    const facts = [fromKnowledge ? ROUTE_NAMES.kb : ROUTE_NAMES[meta.route] || meta.route];
     if (meta.checks) facts.push(CHECK_NAMES[meta.checks.judge] || meta.checks.judge);
     if (meta.tokens) facts.push(meta.tokens + ' ток.');
     if (meta.seconds) facts.push(meta.seconds + ' с');
@@ -218,12 +221,15 @@ $('#rail').addEventListener('click', () => openPanel('qc'));
 $('#panel-close').addEventListener('click', () => app.classList.add('panel-closed'));
 app.querySelectorAll('.tab[data-tab]').forEach((node) => node.addEventListener('click', () => showTab(node.dataset.tab)));
 
-/* золотая линия: письмо уходит из чата в службу качества */
-function flyToPanel(from) {
+/* золотая линия: письмо уходит из чата к службе качества (панель открыта — в её заголовок,
+   закрыта — к рельсе справа, откуда панель потом открывается) */
+function flyToPanel(a) {
   return new Promise((resolve) => {
     const svg = $('#flight'), path = $('#flight-path'), dot = $('#fly-dot');
-    const a = from.getBoundingClientRect(), b = panel.getBoundingClientRect();
-    const x1 = a.right, y1 = a.top + a.height / 2, x2 = b.left + 70, y2 = b.top + 28;
+    const b = panel.getBoundingClientRect();
+    const shown = b.width > 0 && !app.classList.contains('panel-closed');
+    const x1 = a.right, y1 = a.top + a.height / 2;
+    const x2 = shown ? b.left + 70 : svg.clientWidth - 22, y2 = shown ? b.top + 28 : Math.round(svg.clientHeight / 2);
     path.setAttribute('d', `M ${x1} ${y1} C ${x1 + 160} ${y1}, ${x2 - 160} ${y2}, ${x2} ${y2}`);
     const length = path.getTotalLength();
     path.style.strokeDasharray = length;

@@ -175,7 +175,8 @@ class Store:
                               'COALESCE(AVG(seconds),0) sec FROM questions %s' % where, args).fetchone()
         unanswered = [dict(row) for row in conn.execute(
             "SELECT question, COUNT(*) n FROM questions %s AND route IN ('not_found','unresolved') "
-            'GROUP BY question ORDER BY n DESC, MAX(id) DESC' % where, args)]
+            "AND id NOT IN (SELECT question_id FROM tickets WHERE status='answered') "
+            'GROUP BY question ORDER BY n DESC, MAX(id) DESC' % where, args)]      # на что служба уже ответила — не предложение
         return {'questions': sum(routes.values()), 'routes': routes,
                 'tokens_in': tokens['a'], 'tokens_out': tokens['b'],
                 'avg_tokens': round(tokens['avg']), 'avg_seconds': round(tokens['sec'], 1),

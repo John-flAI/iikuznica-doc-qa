@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from app.engine import load_engine
-from app.service import KNOWLEDGE, Service
+from app.service import KNOWLEDGE, Service, kb_unit
 from app.store import Store
 
 try:                                    # python -m unittest tests.test_service
@@ -82,11 +82,20 @@ class ServiceFlow(unittest.TestCase):
         ticket_id = first['ticket']['id']
         self.assertIn('«Кто имеет право подписывать документы от лица компании?»', first['ticket']['letter'])
         self.assertEqual(self.store.ticket(ticket_id)['status'], 'draft')
+        self.assertEqual([row['question'] for row in self.store.analytics()['unanswered']],
+                         ['Кто имеет право подписывать документы от лица компании?'])
 
         service.send(ticket_id)
         self.assertEqual(self.store.ticket(ticket_id)['status'], 'open')
         service.answer(ticket_id, EXPERT_ANSWER, 'Иван')
         self.assertEqual(self.store.ticket(ticket_id)['status'], 'answered')
+        self.assertEqual(self.store.analytics()['unanswered'], [])      # на вопрос уже ответили — не «что внести в документацию»
+        address = kb_unit(self.store.ticket(ticket_id)).address.casefold()
+        self.assertEqual((address.count('служба качества'), address.count('иван')), (1, 1))
+
+        service.ask(None, OFF_TOPIC)                                     # автор по умолчанию — не двоится в адресе
+        service.answer(self.store.tickets('draft')[0]['id'], EXPERT_ANSWER, 'Служба качества')
+        self.assertEqual(kb_unit(self.store.tickets('answered')[0]).address.casefold().count('служба качества'), 1)
 
         session_id = self._last_session()
         delivered = self.store.messages(session_id)[-1]

@@ -46,9 +46,11 @@ def letter(ticket):
 
 def kb_unit(ticket):
     """Запись базы знаний — такой же искомый атом, как пункт регламента."""
+    author = (ticket['answered_by'] or '').strip()          # «Служба качества» в адресе уже названа — не двоим
     return Unit('%s:%d' % (KNOWLEDGE, ticket['id']), KNOWLEDGE, '', ticket['answer'], 'Ответ службы качества',
-                (('', 'Ответ службы качества, %s, %s. Вопрос сотрудника: %s'
-                  % (ticket['answered_by'], (ticket['answered_at'] or '')[:10], ticket['question']), SECTION),),
+                (('', 'Ответ службы качества%s, %s. Вопрос сотрудника: %s'
+                  % (', ' + author if author and author.casefold() != 'служба качества' else '',
+                     (ticket['answered_at'] or '')[:10], ticket['question']), SECTION),),
                 TEXT)
 
 
