@@ -29,7 +29,7 @@ LLM_FALLBACK_MODEL = os.environ.get('LLM_FALLBACK_MODEL')     # запасная
 # Первая запись — по умолчанию. Запись без ключа в окружении на стенд не попадает.
 MODELS = ('zai-flash|GLM-5.3-Flash · Z.ai|https://api.z.ai/api/coding/paas/v4|GLM-5.3-Flash|LLM_API_KEY;'
           'comet-qwen|Qwen3.5-122B-A10B · CometAPI|https://api.cometapi.com/v1|qwen3.5-122b-a10b|COMETAPI_KEY;'
-          'zai-47|GLM-4.7-Flash · Z.ai|https://api.z.ai/api/coding/paas/v4|GLM-4.7-Flash|LLM_API_KEY')
+          'comet-oss|gpt-oss-120b · CometAPI|https://api.cometapi.com/v1|gpt-oss-120b|COMETAPI_KEY')
 LLM_MODELS = os.environ.get('LLM_MODELS', MODELS)
 
 # Стенд демонстрационный: сколько вопросов в час можно задать с одного адреса (0 — без лимита).

@@ -103,7 +103,7 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
         service = svc(request)
         return {'ok': True, 'regulations': len(service.engine.corpus.docs) - (KNOWLEDGE in service.engine.corpus.docs),
                 'knowledge': sum(1 for u in service.engine.corpus.units if u.doc == KNOWLEDGE),
-                'model': config.LLM_MODEL, 'embeddings': config.EMBED_MODEL,
+                'model': service.catalog[0]['model'] if service.catalog else config.LLM_MODEL,   # по умолчанию — первая в каталоге
                 'model_served': service.store.served_model(),     # что реально ответило на последний запрос
                 'vectors': service.engine.search.vectors is not None, 'examples': EXAMPLES,
                 'ask_limit': limiter.limit,     # вопросов в час с одного адреса; клиент пишет это на стенде

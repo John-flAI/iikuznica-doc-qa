@@ -228,6 +228,7 @@ class ModelSwitch(unittest.TestCase):
         client, _ = self.stand()
         health = client.get('/api/health').json()
         self.assertEqual(([m['id'] for m in health['models']], health['model_default']), (['default', 'second'], 'default'))
+        self.assertEqual(health['model'], 'm1')          # health называет модель каталога, а не запасного клиента
 
     def test_without_a_catalog_the_stand_has_a_single_model(self):
         client, _ = self.stand(with_catalog=False)
