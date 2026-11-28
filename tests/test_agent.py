@@ -5,7 +5,7 @@ import re
 import unittest
 from pathlib import Path
 
-from app.agent import GIVE_UP_CHECK, Agent, subject_words
+from app.agent import GIVE_UP_CHECK, SCOPE_CHECK, Agent, subject_words
 from app.engine import load_engine
 from app.llm import Reply
 
@@ -175,7 +175,10 @@ class AgentLogic(unittest.TestCase):
             'question': 'В каком подразделении?', 'options': ['Регламент: «%s»' % title, 'Другое']}}))
         decision = self.agent(reply).ask('За какое время назначают РП?')
         self.assertEqual(decision.route, 'clarify')
-        self.assertEqual(decision.option_docs, {'Регламент: «%s»' % title: 'f4'})
+        # названный моделью регламент связан, а код дополнил кнопки остальными сильными регламентами
+        self.assertEqual(decision.option_docs, {'Регламент: «%s»' % title: 'f4',
+                                                self.engine.corpus.title('f2'): 'f2',
+                                                self.engine.corpus.title('f5'): 'f5'})
 
     def test_unavailable_model_degrades_to_raw_fragments(self):
         decision = self.agent(Reply(error='HTTP 429')).ask(RISKS)
@@ -247,12 +250,89 @@ class AgentLogic(unittest.TestCase):
         self.assertEqual((decision.route, decision.question), ('clarify', 'Да или нет?'))
 
     def test_clarification_about_regulations_is_not_second_guessed(self):
+        """Близкие фрагменты есть в нескольких регламентах — уточнение уместно, модель его не переспрашиваем."""
+        first, second = self.engine.corpus.get('f2:18.2~11'), self.engine.corpus.get('f5:23.4~6')
         reply = ok(json.dumps({'action': 'clarify', 'clarify': {'question': 'К какому регламенту относится ваш проект?',
                                                                 'options': ['А', 'Б']}}, ensure_ascii=False))
         agent = self.agent(reply)
-        agent.strongest = lambda found: 0.9
+        agent.candidates = lambda query, scope=None, kb=None: {
+            first.uid: (first, 1.0, 1.0), second.uid: (second, 1.0, 1.0)}
         self.assertEqual(agent.ask(RISKS).route, 'clarify')
         self.assertEqual(agent.llm.calls, 1)                   # нужный вопрос модель задаёт сразу
+
+    def test_regulation_clarify_lists_all_strong_regulations(self):
+        """Модель переспрашивает о регламенте и называет не все: код дополняет кнопки названиями регламентов,
+        где нашлись близкие фрагменты, — сотрудник видит все варианты, а не выбор модели."""
+        first, second = self.engine.corpus.get('f2:18.2~11'), self.engine.corpus.get('f4:15.3~3')
+        reply = ok(json.dumps({'action': 'clarify', 'clarify': {
+            'question': 'В каком регламенте вы работаете?', 'options': ['Организация проектной деятельности']}},
+            ensure_ascii=False))
+        agent = self.agent(reply)
+        agent.candidates = lambda query, scope=None, kb=None: {
+            first.uid: (first, 1.0, 1.0), second.uid: (second, 1.0, 1.0)}
+        decision = agent.ask(RISKS)
+        self.assertEqual(decision.route, 'clarify')
+        self.assertIn('Организация проектной деятельности', decision.options)
+        self.assertIn(self.engine.corpus.title('f4'), decision.options)
+        self.assertEqual(sorted(decision.option_docs.values()), ['f2', 'f4'])
+
+    def test_clarification_about_a_regulation_with_one_strong_source_gets_a_reminder(self):
+        """Близкие фрагменты — из одного регламента, а модель переспрашивает о регламенте: напоминание,
+        и после него модель отвечает (банк: «к какому регламенту относится вопрос» при единственном источнике)."""
+        unit = self.engine.corpus.get('f2:18.2~11')
+        agent = self.agent(ok('{}'))
+        agent.candidates = lambda query, scope=None, kb=None: {unit.uid: (unit, 0.9, 0.9)}
+
+        def decide(messages):
+            if 'переспрашивать о регламенте' in messages[-1]['content']:
+                return answer(unit.uid)
+            return ok(json.dumps({'action': 'clarify', 'clarify': {
+                'question': 'К какому регламенту относится ваш вопрос?', 'options': ['А']}}))
+
+        llm = FakeLLM(ok('{}'))
+        llm.chat = flow(decide)
+        agent.llm = llm
+        decision = agent.ask(RISKS)
+        self.assertEqual((decision.route, decision.text), ('answer', 'Ответ по регламенту.'))
+
+    def test_clarify_after_the_regulation_is_chosen_gets_one_reminder(self):
+        """Регламент выбран сотрудником, а модель переспрашивает снова: одно напоминание — и модель
+        отвечает по фрагментам выбранного регламента (банк: два уточнения подряд)."""
+        unit = self.engine.corpus.get('f2:18.2~11')
+        agent = self.agent(ok('{}'))
+        agent.candidates = lambda query, scope=None, kb=None: {unit.uid: (unit, 1.0, 1.0)}
+
+        def decide(messages):
+            if SCOPE_CHECK in messages[-1]['content']:
+                return answer(unit.uid)
+            return ok(json.dumps({'action': 'clarify', 'clarify': {
+                'question': 'Какой у вас случай?', 'options': ['А', 'Б']}}))
+
+        llm = FakeLLM(ok('{}'))
+        llm.chat = flow(decide)
+        agent.llm = llm
+        decision = agent.ask(RISKS, [('В каком вы работаете?', 'Организация проектной деятельности', 'f2')])
+        self.assertEqual((decision.route, decision.text), ('answer', 'Ответ по регламенту.'))
+
+    def test_needless_clarification_fires_on_moderately_close_fragments(self):
+        """«Предоставлена ли полная информация…» при найденных фрагментах — переспрос независимо от того,
+        насколько они близки: фрагменты есть, модель может отвечать (банк A05)."""
+        unit = self.engine.corpus.get('f2:18.2~11')
+        agent = self.agent(ok('{}'))
+        agent.candidates = lambda query, scope=None, kb=None: {unit.uid: (unit, 0.5, 0.5)}
+
+        def decide(messages):
+            if GIVE_UP_CHECK in messages[-1]['content']:
+                return answer(unit.uid)
+            return ok(json.dumps({'action': 'clarify', 'clarify': {
+                'question': 'Предоставлена ли полная информация по проекту?', 'options': ['Да', 'Нет']}},
+                ensure_ascii=False))
+
+        llm = FakeLLM(ok('{}'))
+        llm.chat = flow(decide)
+        agent.llm = llm
+        decision = agent.ask(RISKS)
+        self.assertEqual(decision.route, 'answer')
 
     def test_off_topic_question_never_reaches_the_decision(self):
         """Подходящих фрагментов нет: решение по фрагментам не принимается — один вызов классификатора

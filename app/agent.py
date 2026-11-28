@@ -105,6 +105,12 @@ JUDGE_SYSTEM = """Вы проверяете ответ агента на опо�
 GIVE_UP_CHECK = ('Среди фрагментов есть близкие к вопросу. Если ответ зависит от условия, которого нет '
                  'в вопросе, — задай уточняющий вопрос (clarify). Если прямой ответ во фрагментах есть — '
                  'приведи его (answer). not_found — только если фрагменты действительно о другом.')
+SCOPE_CHECK = ('Регламент уже выбран сотрудником. Отвечай по его найденным фрагментам: верни action «answer» '
+               'с адресами пунктов или not_found, если ответа там нет. Уточняющий вопрос — только если без '
+               'него ответ дать нельзя.')
+REG_CHECK = ('Близкие к вопросу фрагменты нашлись только в регламенте «%s» — переспрашивать о регламенте '
+             'не нужно. Верни action «answer» с адресами его пунктов или not_found, если ответа там нет.')
+REG_CLARIFY = re.compile(r'регламент', re.I)
 
 SYSTEM = """Ты — внутренний агент компании. Сотрудник задаёт вопрос, а ты находишь ответ в регламентах.
 
@@ -205,10 +211,17 @@ class Agent:
             choice = self.parse(self.second_opinion(question, history, candidates, decision))
         elif choice.get('action') == 'clarify' and self.needless(choice, candidates):
             choice = self.parse(self.second_opinion(question, history, candidates, decision))
+        elif choice.get('action') == 'clarify' and scope:      # регламент выбран — переспрос не продвигает ответ
+            choice = self.parse(self.again(question, history, candidates, decision, SCOPE_CHECK))
+        elif choice.get('action') == 'clarify' and not scope:
+            doc = self.clarifies_regulation(choice, candidates)
+            if doc:                # сильный регламент один — переспрос о регламенте ответа не меняет
+                choice = self.parse(self.again(question, history, candidates, decision,
+                                               REG_CHECK % self.engine.corpus.title(doc)))
         if choice.get('action') == 'answer':
             self.decide_answer(choice, decision, candidates, scope, question, history)
         elif choice.get('action') == 'clarify':
-            self.decide_clarify(choice, decision, query, scope, kb)
+            self.decide_clarify(choice, decision, query, scope, kb, candidates)
         elif choice.get('action') == 'smalltalk':
             self.decide_smalltalk(choice, decision, candidates)
         if decision.route == 'not_found':
@@ -313,11 +326,12 @@ class Agent:
         return reply.text if reply.ok else ''
 
     def needless(self, choice, candidates):
-        """Модель переспрашивает «предоставлена ли полная информация», хотя фрагменты близки к вопросу:
-        такой вопрос ответ не меняет — один раз просим прямой ответ."""
+        """Модель переспрашивает «предоставлена ли полная информация», хотя фрагменты найдены:
+        такой вопрос ответ не меняет — один раз просим прямой ответ. Порог ниже, чем у «нет ответа»:
+        достаточно того, что фрагменты вообще есть — модель их видит и может ответить."""
         clarify = choice.get('clarify')
         question = str((clarify.get('question') if isinstance(clarify, dict) else None) or '')
-        return bool(NEEDLESS.search(question)) and self.strongest(candidates) >= GIVE_UP_FLOOR
+        return bool(NEEDLESS.search(question)) and bool(candidates)
 
     def strongest(self, candidates):
         return max((self.relevance(c[1], c[2]) for c in candidates.values()), default=0.0)
@@ -377,7 +391,7 @@ class Agent:
                 chosen.append(max(children, key=lambda c: self.relevance(c[1], c[2])))
         return chosen
 
-    def decide_clarify(self, choice, decision, query, scope, kb=None):
+    def decide_clarify(self, choice, decision, query, scope, kb=None, candidates=None):
         clarify = choice.get('clarify')
         clarify = clarify if isinstance(clarify, dict) else {}     # «clarify»: "строка" — уточнения нет
         if not (isinstance(clarify.get('question'), str) and clarify['question'].strip()):
@@ -390,17 +404,51 @@ class Agent:
         decision.options = [o[:120] for o in options]
         # вариант, называющий регламент, запоминаем: он сузит следующий поиск
         decision.option_docs = {o[:120]: doc for o, doc in zip(options, self.regulation_of(options)) if doc}
+        self.complete_regulation_options(decision, candidates or {})
+
+    def complete_regulation_options(self, decision, candidates):
+        """Модель переспрашивает о регламенте, но называет не все: близкие к вопросу фрагменты есть
+        в нескольких регламентах, а в кнопках перечислены не все — код дополняет список названиями
+        регламентов, где нашлись близкие фрагменты. Сотрудник видит все варианты, а не выбор модели."""
+        if not (REG_CLARIFY.search(decision.question or '') or decision.option_docs):
+            return
+        strong = {c[0].doc for c in candidates.values()
+                  if c[0].doc in self.engine.corpus.docs and self.relevance(c[1], c[2]) >= GIVE_UP_FLOOR}
+        for doc in sorted(strong):
+            if len(decision.options) >= 6:
+                break
+            title = self.engine.corpus.title(doc)[:120]
+            if any(title.casefold() in o.casefold() for o in decision.options):
+                continue
+            decision.options.append(title)
+            decision.option_docs[title] = doc
+
+    def clarifies_regulation(self, choice, candidates):
+        """Модель переспрашивает, а близкие к вопросу фрагменты есть только в одном регламенте:
+        переспрос ответа не меняет — ответ либо в этом регламенте, либо его нет. Возвращает этот
+        регламент — иначе None. Уточнение о регламенте, подразделении или «для какого случая»
+        ловится одинаково: смотрим на источники, а не на формулировку модели."""
+        clarify = choice.get('clarify')
+        if not isinstance(clarify, dict):
+            return None
+        strong = {c[0].doc for c in candidates.values()
+                  if c[0].doc in self.engine.corpus.docs and self.relevance(c[1], c[2]) >= GIVE_UP_FLOOR}
+        return next(iter(strong)) if len(strong) == 1 else None
 
     @staticmethod
     def consistent(cites):
         """Пункты разных регламентов называют одни и те же сроки и нормы? Словам модели («same») не верим на слово:
-        каждый регламент — набор чисел и мер (дни, недели, проценты…); наборы двух регламентов разошлись — отвечать рано."""
+        каждый регламент — набор чисел и мер (дни, недели, проценты…); наборы двух регламентов разошлись — отвечать рано.
+        У одного регламента числа есть, у другого нет — тоже не «одно и то же»: один отвечает нормой, второй молчит."""
         facts = {}
         for unit, _, _ in cites:
             text = unit.text.lower().replace('ё', 'е')
             found = {n.replace(',', '.') for n in NUMBER.findall(text)} | set(MEASURE.findall(text))
             facts[unit.doc] = facts.get(unit.doc, set()) | found
-        return all(a == b for a in facts.values() for b in facts.values() if a and b)
+        sets = list(facts.values())
+        if any(sets) and not all(sets):
+            return False
+        return all(a == b for a in sets for b in sets)
 
     def regulation_of(self, options):
         """Какой регламент называет каждый вариант ответа."""

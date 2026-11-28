@@ -69,7 +69,8 @@ class ServiceFlow(unittest.TestCase):
         self.assertEqual(first['route'], 'clarify')
         opened = self.store.open_question(self._last_session())
         self.assertEqual(opened['meta'], json.dumps({'awaiting': 'В каком регламенте?', 'options': [
-            {'text': 'Регламент: «%s»' % TITLE_F2, 'doc': 'f2'}], 'clarifications': []}, ensure_ascii=False))
+            {'text': 'Регламент: «%s»' % TITLE_F2, 'doc': 'f2'},
+            {'text': 'Проектная деятельность Дирекции ИБ', 'doc': 'f5'}], 'clarifications': []}, ensure_ascii=False))
         second = service.ask(opened['session_id'], first['clarify']['options'][0]['text'])
         self.assertEqual(second['route'], 'answer')
         self.assertEqual(second['clarifications'], 1)
