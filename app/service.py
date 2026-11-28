@@ -27,9 +27,9 @@ EXAMPLES = [
 
 NOTICES = {
     'not_found': 'В регламентах нет ответа на этот вопрос, поэтому я его не выдумываю. '
-                 'Подготовил письмо в службу качества.',
+                 'Оформлю запрос в службу качества.',
     'unresolved': 'Дать однозначный ответ не получилось: в регламентах несколько вариантов, '
-                  'и уточнения не сняли различие. Подготовил письмо в службу качества.',
+                  'и уточнения не сняли различие. Оформлю запрос в службу качества.',
     'degraded': 'Модель временно недоступна. Показываю найденные пункты без обработки модели — '
                 'проверьте их самостоятельно или повторите вопрос через минуту.',
     'unavailable': 'Модель временно недоступна, поэтому связного ответа нет. Показываю найденные пункты '
@@ -227,7 +227,8 @@ class Service:
             context = '\n'.join('• %s — %s: «%s»' % (s['doc_title'], s['address'], s['quote']) for s in sources)
             ticket_id = self.store.create_ticket(session_id, question['id'], question['question'], context)
             message.update(text=NOTICES.get(route, NOTICES['not_found']), sources=sources,
-                           ticket={'id': ticket_id, 'letter': letter(self.store.ticket(ticket_id))})
+                           ticket={'id': ticket_id, 'question': question['question'],   # дословно — карточка в чате
+                                   'letter': letter(self.store.ticket(ticket_id))})
             self.store.touch_question(question['id'], route=route, uids=[s['uid'] for s in sources],
                                       ticket_id=ticket_id, awaiting=None, **common)
         for reply in decision.replies:          # токены всех вызовов раунда: решение, текст ответа, судья
@@ -264,7 +265,7 @@ class Service:
                                      notice_letter(ticket), number, owner)]
             ticket['letter_delivered'] = mail.delivered_of(statuses)
         self.store.add_message(ticket['session_id'], 'system',
-                               'Письмо отправлено в службу качества, запрос №%d.' % ticket['id'],
+                               'Запрос №%d отправлен в службу качества. Ожидайте ответа — он появится в этом чате.' % ticket['id'],
                                meta={'role': 'system', 'route': 'sent', 'ticket_id': ticket['id']})
         return ticket
 
