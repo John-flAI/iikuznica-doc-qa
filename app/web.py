@@ -324,7 +324,7 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
         return RedirectResponse('/', status_code=302)
 
     for path in PAGES:
-        app.get(path)(lambda: FileResponse(STATIC / 'index.html'))
+        app.api_route(path, methods=['GET', 'HEAD'])(lambda: FileResponse(STATIC / 'index.html'))
     return app
 
 
