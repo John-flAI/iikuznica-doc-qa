@@ -17,8 +17,9 @@ EMBED_BASE_URL = os.environ.get('EMBED_BASE_URL', 'http://127.0.0.1:11434/v1')
 EMBED_MODEL = os.environ.get('EMBED_MODEL', 'bge-m3')
 EMBED_API_KEY = os.environ.get('EMBED_API_KEY')
 
-# Языковая модель — любая OpenAI-совместимая. На стенде: GLM-4.5-Air (MIT, 62 ГБ в Q4) с запасной
-# GLM-4.7-Flash (MIT, 19 ГБ). По умолчанию — локальный сервер без ключей; значения для облака — .env.example
+# Языковая модель — любая OpenAI-совместимая. На стенде — каталог LLM_MODELS (ниже): GLM-5.3-Flash · Z.ai
+# по умолчанию плюс две модели CometAPI. Дефолты здесь — запасной клиент, когда каталог пуст (локальный
+# сервер без ключей); значения для облака — .env.example
 LLM_BASE_URL = os.environ.get('LLM_BASE_URL', 'http://127.0.0.1:11434/v1')
 LLM_MODEL = os.environ.get('LLM_MODEL', 'glm-4.7-flash:latest')
 LLM_API_KEY = os.environ.get('LLM_API_KEY')

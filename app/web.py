@@ -10,7 +10,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi import Path as PathParam
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -141,10 +141,20 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
     @app.middleware('http')
     async def no_stale_client(request, call_next):
         """Страницы и статика — без эвристического кэша браузера: после обновления стенда новая страница не должна
-        смешаться со старым app.js. Браузер каждый раз сверяет ETag — файл не менялся, ответ 304 без тела."""
+        смешаться со старым app.js. Браузер каждый раз сверяет ETag — файл не менялся, ответ 304 без тела.
+        Заодно — заголовки безопасности: стенду не нужен интернет, всё своё, поэтому CSP строгий ('self';
+        'unsafe-inline' в script — только для маленького загрузчика входа в index.html, style — для подстраховки)."""
         response = await call_next(request)
         if request.url.path.startswith('/static/') or request.url.path in PAGES:
             response.headers['cache-control'] = 'no-cache'
+        response.headers['content-security-policy'] = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                                                       "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                                                       "connect-src 'self'; font-src 'self'; base-uri 'self'; "
+                                                       "form-action 'self'; frame-ancestors 'none'")
+        response.headers['x-content-type-options'] = 'nosniff'
+        response.headers['x-frame-options'] = 'DENY'
+        response.headers['referrer-policy'] = 'strict-origin-when-cross-origin'
+        response.headers['permissions-policy'] = 'camera=(), microphone=(), geolocation=(), interest-cohort=()'
         return response
 
     def svc(request: Request) -> Service:
@@ -153,6 +163,10 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
     @app.get('/robots.txt')
     def robots():
         return FileResponse(STATIC / 'robots.txt', media_type='text/plain')
+
+    @app.get('/favicon.ico')
+    def favicon():
+        return FileResponse(STATIC / 'favicon.ico', media_type='image/x-icon')
 
     @app.get('/api/health')
     def health(request: Request):
@@ -301,6 +315,13 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
     @app.get('/api/weekly')
     def weekly(request: Request, days: int = Query(7, ge=1, le=3660)):
         return svc(request).weekly(days, owner=owner_of(request))
+
+    @app.exception_handler(404)
+    async def page_404(request: Request, exc):
+        """Неизвестная страница ведёт на стенд (жюри не видит сырой JSON); API и статика отвечают JSON-ом как раньше."""
+        if request.url.path.startswith(('/api/', '/static/')):
+            return JSONResponse({'detail': getattr(exc, 'detail', 'Not Found')}, status_code=404)
+        return RedirectResponse('/', status_code=302)
 
     for path in PAGES:
         app.get(path)(lambda: FileResponse(STATIC / 'index.html'))
