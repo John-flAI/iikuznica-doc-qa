@@ -8,14 +8,14 @@ const panel = $('#panel'), docEl = $('#doc'), docPick = $('#doc-pick');
 const ROUTE_NAMES = {
   answer: 'ответ по регламенту', clarify: 'уточняющий вопрос', not_found: 'нет ответа в регламентах',
   unresolved: 'однозначного ответа нет', degraded: 'модель недоступна', qc: 'ответ службы качества',
-  kb: 'ответ из базы знаний — ответ службы качества', smalltalk: 'общение не по регламентам',
+  kb: 'ответ из базы знаний', smalltalk: 'общение не по регламентам',
 };
 const CHECK_NAMES = {
-  passed: 'проверка на опору в регламенте пройдена', rewritten: 'текст переписан после проверки',
-  failed: 'текст не прошёл проверку — пункты дословно', unavailable: 'проверка недоступна',
+  passed: 'проверка по регламенту пройдена', rewritten: 'текст переписан после проверки',
+  failed: 'проверка не пройдена — пункты дословно', unavailable: 'проверка недоступна',
   invalid: 'модель не вернула текст',
 };
-const THINKING_STEPS = ['Ищу в регламентах…', 'Модель решает: ответить, уточнить или признать, что ответа нет…', 'Проверяю ответ…'];
+const THINKING_STEPS = ['Ищу в регламентах…', 'Модель решает: ответить, уточнить или отказать…', 'Проверяю ответ…'];
 
 const mode = ({'/user': 'user', '/qc': 'qc', '/analytics': 'analytics'})[location.pathname] || 'full';
 app.classList.add('mode-' + mode);
@@ -32,7 +32,12 @@ async function api(path, options) {
   const response = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(body.detail || response.statusText);
+    // 422 приходит списком {type, loc, msg} (FastAPI): сотруднику показываем причины (msg), а не «[object Object]».
+    // «Value error, » — служебная приставка Pydantic перед текстом причины, её не печатаем
+    const reason = Array.isArray(body.detail)
+      ? body.detail.map((item) => String((item && item.msg) || '').replace(/^Value error,\s*/, '')).filter(Boolean).join('; ')
+      : typeof body.detail === 'string' ? body.detail : '';
+    const error = new Error(reason || response.statusText);
     error.status = response.status;
     throw error;
   }
@@ -73,6 +78,7 @@ function thinking(on) {
 function sourceCard(source) {
   const card = button('source' + (source.doc === 'kb' ? ' kb' : ''), '', () => {
     sources = [source];
+    chatDocs.set(sid, source);   // помним, что открывали в этом чате: при возврате в него колонна покажет тот же документ
     openPanel('docs');
     showDocument(source);
   });
@@ -108,8 +114,8 @@ function ticketIco(name) {
 function ticketDone(id, status, result) {
   const done = el('div', 'ticket done');
   done.dataset.ticket = id;   // по номеру карточку находит форма ответа службы качества — меняет «отправлен» на «отвечен» без перезагрузки
-  done.append(ticketIco('check'), el('span', 't-text', 'Запрос № ' + id + ' · ' + (status === 'answered' ? 'отвечен' : 'отправлен')));
-  if (result && result.letter_delivered === true) done.append(el('span', 'sent-mail', 'Письмо отправлено в службу качества'));   // только когда сервер подтвердил доставку
+  done.append(ticketIco('check'), el('span', 't-text', 'Запрос № ' + id + (status === 'answered' ? ' · отвечен' : '')));
+  if (result && result.letter_delivered === true) done.append(el('span', 't-mail', '· письмо доставлено'));   // «отправлен» не пишем: следующей строкой сервер говорит это сам   // только когда сервер подтвердил доставку
   return done;
 }
 
@@ -171,7 +177,7 @@ function show(entry) {
     node.append(el('div', 'who', 'Служба качества' + (meta.author && meta.author !== 'Служба качества' ? ' · ' + meta.author : '') +
                    (meta.ticket_id ? ' · запрос №' + meta.ticket_id : '')),
                 el('div', 'bubble', entry.text));
-    if (meta.ticket_id) node.append(el('div', 'meta', 'Добавлено в базу знаний: повторный вопрос агент ответит сам.'));
+    if (meta.ticket_id) node.append(el('div', 'meta', 'В следующий раз агент ответит сам.'));
     messagesEl.append(node);
   } else if (entry.role === 'agent') {
     const node = el('div', 'msg agent');
@@ -258,8 +264,12 @@ function showTab(name) {
   tab = name;
   app.querySelectorAll('.tab').forEach((node) => node.classList.toggle('active', node.dataset.tab === name));
   app.querySelectorAll('.tab-body').forEach((node) => node.classList.toggle('active', node.id === 'tab-' + name));
-  const activeTab = app.querySelector('.tab.active');   // строка вкладок прокручивается: выбранная вкладка остаётся в поле зрения (гайд tabs)
-  if (activeTab) activeTab.scrollIntoView({ block: 'nearest', inline: 'nearest', container: 'nearest' });
+  const nav = app.querySelector('.tabs'), activeTab = nav.querySelector('.tab.active');   // строка вкладок прокручивается: выбранная вкладка остаётся в поле зрения (гайд tabs)
+  if (activeTab) {   // крутим только саму строку — без scrollIntoView, чтобы не задевать другие прокрутки
+    const n = nav.getBoundingClientRect(), a = activeTab.getBoundingClientRect();
+    if (a.left < n.left) nav.scrollLeft -= n.left - a.left + 8;
+    else if (a.right > n.right) nav.scrollLeft += a.right - n.right + 8;
+  }
   if (name === 'qc') loadTickets();
   if (name === 'stats') loadStats();
   if (name === 'docs' && sources.length) showDocument(sources[0]);
@@ -315,7 +325,7 @@ async function loadTickets() {
   tickets.forEach((ticket) => { ticketMap[ticket.id] = ticket; });
   const list = $('#qc-list');
   list.replaceChildren();
-  if (!tickets.length) list.append(el('div', 'empty', 'Запросов пока нет. Они появятся здесь, когда сотрудник отправит запрос из чата.'));
+  if (!tickets.length) list.append(el('div', 'empty', 'Запросов пока нет.'));
   tickets.forEach((ticket) => {
     const item = button('qc-item ' + ticket.status, '', () => selectTicket(ticket.id));
     item.append(el('span', 'n', '№' + ticket.id + ' · ' + ticket.question.slice(0, 90)),
@@ -324,28 +334,31 @@ async function loadTickets() {
   });
 }
 
-function selectTicket(id) {
+function selectTicket(id, brief) {   // brief — карточка стоит под открытым письмом: вопрос и контекст уже напечатаны в письме
   const ticket = tickets.find((t) => t.id === id);
   if (!ticket) return;
   app.querySelectorAll('.qc-item').forEach((node) => node.classList.toggle('active', node.classList.contains('qc-item') && node.textContent.startsWith('№' + id + ' ')));
   const box = $('#qc-detail');
   box.replaceChildren(el('div', 'qc-detail'));
   const card = box.firstChild;
-  card.append(el('h3', '', 'Запрос №' + ticket.id), el('div', 'n', ticket.question));
-  if (ticket.context) card.append(el('div', 'context', 'Что нашлось по теме:\n' + ticket.context));
+  card.append(el('h3', '', 'Запрос №' + ticket.id));
+  if (!brief) {
+    card.append(el('div', 'n', ticket.question));
+    if (ticket.context) card.append(el('div', 'context', 'Что нашлось по теме:\n' + ticket.context));
+  }
   if (ticket.status === 'open') {
     const form = el('div', 'qc-form');
     const author = el('input'), answer = el('textarea');
     author.placeholder = 'Ваше имя'; author.value = 'Служба качества';
-    answer.placeholder = 'Напишите верный ответ — он уйдёт сотруднику в чат и станет ответом базы знаний';
+    answer.placeholder = 'Напишите верный ответ сотруднику';
     form.append(author, answer);
     form.append(button('primary', 'Отправить ответ сотруднику', async (event) => {
       event.target.disabled = true;
       const from = event.target.getBoundingClientRect();   // кнопку заменит «Ответ отправлен» — запоминаем, где она была
       try {
         const result = await api('/api/tickets/' + ticket.id + '/answer', { method: 'POST', body: JSON.stringify({ answer: answer.value, author: author.value }) });
-        const done = el('div', 'qc-done', 'Ответ отправлен сотруднику и добавлен в базу знаний: теперь агент ответит на этот вопрос сам.');
-        if (result && result.letter_delivered === true) done.append(el('div', 'sent-mail', 'Письма доставлены — службе качества и сотруднику'));
+        const done = el('div', 'qc-done', 'Ответ отправлен сотруднику и сохранён в базу знаний.');
+        if (result && result.letter_delivered === true) done.append(el('div', 'sent-mail', 'Письма доставлены'));
         form.replaceWith(done);
         await loadTickets();
         await loadMail();                 // в ящике службы качества появляется исходящее «Ответ службы качества»
@@ -370,7 +383,7 @@ function selectTicket(id) {
     card.append(form);
   } else if (ticket.status === 'answered') {
     card.append(el('div', 'answer', ticket.answer),
-                el('div', 'qc-done', 'Ответил: ' + ticket.answered_by + ' · ' + (ticket.answered_at || '').slice(0, 16).replace('T', ' ') + '. Запись добавлена в базу знаний.'));
+                el('div', 'qc-done', 'Ответил: ' + ticket.answered_by + ' · ' + (ticket.answered_at || '').slice(0, 16).replace('T', ' ') + ' · в базе знаний'));
   }
 }
 
@@ -451,7 +464,7 @@ async function loadStats() {
       row.append(el('span', '', ROUTE_NAMES.smalltalk), el('b', '', String(report.smalltalk)));
       routes.append(row);
     }
-    box.append(routes, el('h4', 'sec', 'Вопросы без ответа — что внести в документацию'));
+    box.append(routes, el('h4', 'sec', 'Вопросы без ответа'));
     if (!report.unanswered.length) box.append(el('div', 'empty', 'Предложений нет.'));
     report.unanswered.forEach((row, i) => box.append(el('p', '', (i + 1) + '. ' + row.question + ' — ' + row.n + ' раз(а)')));
   } catch (error) {
@@ -490,15 +503,32 @@ function saveChats() {
   localStorage.setItem('regqa.chats', JSON.stringify(chats));
 }
 
+const DOC_EMPTY = docEl.innerHTML;   // пустое состояние «Документов» из разметки — туда колонна возвращается при переходе в другой чат
+const chatDocs = new Map();          // sid чата → источник, который в нём открывали последним
+// слово владельца 28.11: «переключаюсь между чатами — а правая часть остаётся от первого чата — не должно быть такого».
+// При переходе в другой чат документ прошлого чата не остаётся: колонна на «Документах» сворачивается; тестовые вкладки
+// (служба качества, почта клиента, статистика, настройки) чату не принадлежат и остаются открытыми
+function resetPanelForChat() {
+  docPick.replaceChildren();
+  docEl.innerHTML = DOC_EMPTY;
+  if (tab === 'docs') app.classList.add('panel-closed');
+}
+
 async function openChat(chat) {
   closeChatMenu();
+  const docsWereOpen = tab === 'docs' && !app.classList.contains('panel-closed');   // колонна стояла открытой на «Документах»
   sid = chat.sid; lastId = 0; sources = []; shown.clear(); pendingUser = null;
   localStorage.setItem('regqa.sid', sid);
   messagesEl.replaceChildren();
+  resetPanelForChat();   // правая колонна — не от прошлого чата
   try {
     const history = await api('/api/session/' + sid);
     history.messages.forEach((entry) => show(entry));
   } catch (error) { /* история недоступна — начнём с пустого */ }
+  // в этом чате уже открывали документ, и колонна стояла на «Документах», — показать документ этого чата;
+  // закрытая колонна закрытой и остаётся (сама не раскрывается)
+  const opened = chatDocs.get(chat.sid);
+  if (opened && docsWereOpen) { sources = [opened]; app.classList.remove('panel-closed'); showDocument(opened); }
   renderChats();
   scrollDown();
 }
@@ -598,7 +628,7 @@ function applyTheme(name) {
   root.dataset.theme = name;
   localStorage.setItem('regqa.theme', name);
   themeBtn.setAttribute('aria-checked', String(name === 'graphite'));
-  themeBtn.dataset.tip = 'Тема: ' + THEME_WORDS[name][0] + ' · нажмите — станет ' + THEME_WORDS[nextIn(THEME_LIST, name)][1];
+  themeBtn.dataset.tip = 'Включить ' + THEME_WORDS[nextIn(THEME_LIST, name)][0] + ' тему';
 }
 
 function applySkin(name) {
@@ -606,7 +636,7 @@ function applySkin(name) {
   root.dataset.motion = name;
   localStorage.setItem('regqa.motion', name);
   const next = SKIN_WORDS[nextIn(SKIN_LIST, name)];
-  skinBtn.dataset.tip = 'Оформление: ' + SKIN_WORDS[name] + ' · нажмите — станет ' + next;
+  skinBtn.dataset.tip = 'Включить оформление ' + next;
   skinBtn.setAttribute('aria-label', 'Оформление: ' + SKIN_WORDS[name] + '. Переключить на ' + next);
   // переключили оформление — сообщения входят заново: механику видно сразу, не нужно ждать нового ответа
   messagesEl.classList.add('replay');
@@ -680,10 +710,9 @@ function applyDemo(on, remember) {
   panel.classList.toggle('demo-on', on);
   if (remember) localStorage.setItem('regqa.demo', on ? '1' : '0');
   demoBtn.setAttribute('aria-checked', String(on));
-  demoBtn.dataset.tip = on ? 'Тестовые инструменты: показаны · нажмите — скрыть'
-                           : 'Тестовые инструменты: скрыты · нажмите — показать службу качества, почту клиента, статистику и настройки';
+  demoBtn.dataset.tip = on ? 'Скрыть тестовые инструменты' : 'Показать тестовые инструменты';
   demoBtn.setAttribute('aria-label', 'Тестовые инструменты: ' + (on ? 'показаны. Скрыть' : 'скрыты. Показать'));
-  $('#rail').dataset.tip = on ? 'Открыть: служба качества, почту клиента, документы, статистику, настройки' : 'Открыть документы';
+  $('#rail').dataset.tip = on ? 'Развернуть колонну инструментов' : 'Открыть документы';
   if (!on && DEMO_TABS.includes(tab)) showTab('docs');   // скрыли инструменты, стоя на одном, — остаёмся в документах
 }
 demoBtn.addEventListener('click', () => { applyDemo(!demoOn(), true); loadMail(); });   // показали инструменты — заодно обновляем ящики
@@ -724,12 +753,11 @@ app.querySelectorAll('.tab[data-tab="settings"]').forEach((node) => node.addEven
 
 const MAIL_BOXES = {   // ящики тестовых инструментов: где список, где открытое письмо, счётчик непрочитанных и что писать в пустом ящике
   quality: { list: '#qc-mail-list', detail: '#qc-letter', name: '#qc-mail-name', addr: '#qc-mail-addr', badge: '#qc-badge',
-             empty: 'Писем пока нет. Здесь появится письмо, когда сотрудник отправит запрос из чата.' },
+             empty: 'Писем пока нет.' },
   client: { list: '#client-mail-list', detail: '#client-letter', name: '#client-mail-name', addr: '#client-mail-addr', badge: '#mail-badge', title: 'Почта клиента',
-            empty: 'Писем пока нет. Здесь появятся уведомление о запросе в службу качества и ответ на него.' },
+            empty: 'Писем пока нет.' },
 };
 const QC_MAIL = MAIL_BOXES.quality;
-const KIND_WORDS = { question: 'вопрос', notice: 'уведомление', reply: 'ответ', answer: 'ответ' };
 const boxes = { quality: null, client: null };        // письма ящиков из API; null — ещё не получены
 let mailOn = true, mailBusy = false, openedLetter = null;   // { role, id } — открытое письмо, подсвечено в списке
 
@@ -749,7 +777,7 @@ function letterRow(letter, role) {
   const row = button('letter' + (!letter.outgoing && !isRead(role, letter.id) ? ' unread' : '') + (current ? ' active' : ''), '', () => openLetter(letter, role));
   row.append(el('span', 'dot'), el('span', 'subj', letter.subject), el('span', 'when', when(letter.created)),
              el('span', 'route', (letter.outgoing ? '→ ' : '') + who(letter.outgoing ? letter.to : letter.from) +
-                               ' · ' + (letter.outgoing ? 'отправлено' : 'входящее') + (KIND_WORDS[letter.kind] ? ' · ' + KIND_WORDS[letter.kind] : '')));
+                               ' · ' + (letter.outgoing ? 'отправлено' : 'входящее')));   // вид письма не пишем: он уже в теме («Вопрос…», «Ответ…»)
   return row;
 }
 
@@ -785,7 +813,7 @@ function paintMailInfo() {   // «Настройки», блок «Почта»:
     fact('Сотрудник', accounts.client.email),
     fact('Служба качества', accounts.quality.email),
     fact('Агент', accounts.agent.email),
-    fact('Отправка', standHealth && standHealth.mail && standHealth.mail.smtp ? 'включена — письма уходят на почтовый сервер стенда' : 'выключена — письма хранятся на стенде'),
+    fact('Отправка', standHealth && standHealth.mail && standHealth.mail.smtp ? 'включена' : 'выключена (письма хранятся на стенде)'),
   );
 }
 
@@ -821,12 +849,12 @@ async function openLetter(letter, role) {
   try {
     const full = await api('/api/letter/' + letter.id);
     const card = el('article', 'letter-full');
+    const text = String(full.text || '').replace(/^Тема:[^\n]*\n+/, '');   // тема уже в заголовке — строку «Тема: …» из тела не печатаем второй раз
     card.append(el('h3', '', full.subject),
-                el('div', 'letter-meta', 'От: ' + who(full.from) + ' · ' + full.from + (full.cc ? '   Копия: ' + full.cc : '')),
-                el('div', 'letter-meta', 'Кому: ' + who(full.to) + ' · ' + full.to + '   ' + when(full.created)),
-                el('pre', 'letter-text', full.text));
+                el('div', 'letter-meta', who(full.from) + ' <' + full.from + '> → ' + who(full.to) + ' <' + full.to + '>' + (full.cc ? ' · копия: ' + full.cc : '') + ' · ' + when(full.created)),
+                el('pre', 'letter-text', text));
     box.replaceChildren(card);
-    if (role === 'quality' && full.ticket_id) selectTicket(full.ticket_id);   // форма ответа — существующая карточка запроса; письма клиента только читают
+    if (role === 'quality' && full.ticket_id) selectTicket(full.ticket_id, true);   // форма ответа — карточка запроса без повтора письма; письма клиента только читают
     box.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   } catch (error) {
     box.replaceChildren(el('div', 'notice', 'Не получилось открыть письмо: ' + error.message));
@@ -853,32 +881,32 @@ setInterval(() => { if (!document.hidden) loadMail(); }, 4000);          // но
    иначе из старого title. Запросов к API не делает ---- */
 
 const HINTS = [
-  ['#gate-enter', 'Открыть стенд — данные заполнены заранее'],
+  ['#gate-enter', 'Открыть стенд'],
   ['#ask-send', 'Отправить вопрос · Enter'],
   ['.examples-drop summary', 'Готовые вопросы для проверки стенда'],
   ['.examples button', 'Задать этот вопрос'],
-  ['.chat-tabs .ghost', 'Новый диалог с чистой историей'],
-  ['.chat-chip', 'Клик колёсиком — закрыть чат, правый клик — переименовать или закрыть'],
+  ['.chat-tabs .ghost', 'Новый чат'],
+  ['.chat-chip', 'Правый клик — меню, колёсико — закрыть'],
   ['#panel-collapse', 'Свернуть колонну'],
   ['#panel-close', 'Свернуть колонну'],
   ['.tab[data-tab="docs"]', 'Открыть документы'],
-  ['.tab[data-tab="qc"]', 'Тестовый инструмент: ящик службы качества — здесь отвечают сотруднику'],
-  ['.tab[data-tab="mail"]', 'Тестовый инструмент: почта клиента — сюда приходят уведомления и ответы службы качества'],
+  ['.tab[data-tab="qc"]', 'Ящик службы качества'],
+  ['.tab[data-tab="mail"]', 'Почта клиента'],
   ['.letter', 'Открыть письмо'],
-  ['.tab[data-tab="stats"]', 'Тестовый инструмент: статистика вопросов'],
-  ['.tab[data-tab="settings"]', 'Тестовый инструмент: выбор модели'],
+  ['.tab[data-tab="stats"]', 'Статистика вопросов'],
+  ['.tab[data-tab="settings"]', 'Настройки стенда'],
   ['.model-chip', 'Отвечать этой моделью'],
-  ['.msg-copy', 'Скопировать ответ в буфер обмена'],
-  ['.source', 'Открыть документ и подсветить это место'],
-  ['.option', 'Выбрать этот вариант — он уйдёт как ваш ответ'],
-  ['.ticket .primary', 'Запрос уйдёт в службу качества — ответ придёт в этот чат'],
+  ['.msg-copy', 'Копировать'],
+  ['.source', 'Открыть документ на этом месте'],
+  ['.option', 'Выбрать этот вариант'],
+  ['.ticket .primary', 'Отправить запрос в службу качества'],
   ['.msg.agent > .primary', 'Задать последний вопрос ещё раз'],
   ['.qc-item', 'Показать запрос'],
-  ['.qc-form .primary', 'Ответ уйдёт сотруднику в чат и попадёт в базу знаний'],
+  ['.qc-form .primary', 'Отправить ответ сотруднику'],
   ['#weekly', 'Отчёт службы качества за 7 дней'],
   ['.doc-pick button', 'Открыть этот источник'],
-  ['.context-menu button:not(.danger)', 'Переименовать: Enter — сохранить, Esc — отмена'],
-  ['.context-menu .danger', 'Закрыть чат — диалог убирается из списка'],
+  ['.context-menu button:not(.danger)', 'Enter — сохранить, Esc — отмена'],
+  ['.context-menu .danger', 'Закрыть чат'],
 ];
 const CONTROL = 'button, summary, [data-tip], [role="button"], [role="radio"], [role="switch"]';
 const tipBox = el('div', 'tip');

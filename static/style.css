@@ -2,10 +2,10 @@
   --bg: #f4f6f9; --panel: #ffffff; --ink: #1d2433; --muted: #667085; --line: #dde2ea;
   --accent: #2456c8; --accent-ink: #ffffff; --ok: #187a55; --warn: #a35a00;
   --hl: color-mix(in srgb, var(--accent) 17%, var(--panel)); --radius: 12px;
-  /* служба качества и её запросы — второй цвет стенда (слово владельца 28.11: вместо коричневого — розовый):
+  /* служба качества и её запросы — второй цвет стенда: сдержанный фиолетовый (слово владельца 28.11: вместо коричневого — розовый; розовый отвергнут как «перебор»):
      карточка запроса, кнопка «Отправить», ответы службы качества, аватар «СК», линия полёта. Один смысл — один цвет.
      Фон и кромка выводятся из --qc, поэтому смена цвета службы качества — одна строка в теме */
-  --qc: #c2276d; --qc-ink: #ffffff;
+  --qc: #6d28d9; --qc-ink: #ffffff;
   --qc-bg: color-mix(in srgb, var(--qc) 7%, var(--panel)); --qc-line: color-mix(in srgb, var(--qc) 26%, var(--panel));
   --ok-bg: #e7f3ec; --warn-bg: #fff4dc; --warn-line: #f3dcaa;
   --doc-text: #2c3444; --hover: #e8edf5;
@@ -99,9 +99,10 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 .ticket .t-q { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
 .ticket .t-label { display: block; margin-bottom: 2px; font-size: 12px; color: var(--muted); }
 .ticket .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ticket.done { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px 10px; width: auto; max-width: 100%; align-self: flex-start; padding: 9px 14px 9px 11px; }   /* по содержимому: короткая строка не тянет плашку на всю ширину ответа */
+.ticket.done { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px 10px; width: auto; max-width: 100%; align-self: flex-start; padding: 9px 14px 9px 11px; background: var(--panel); border-color: var(--line); border-left-color: var(--qc); }   /* по содержимому, на нейтральном фоне: она остаётся в чате надолго, цвет — только кромка и значок */
 .ticket.done .t-ico { flex-basis: 24px; width: 24px; height: 24px; box-shadow: none; }
 .ticket.done .t-text { font-size: 13px; font-weight: 600; color: var(--qc); }
+.ticket.done .t-mail { font-size: 13px; color: var(--ok); }
 .primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px; padding: 8px 18px; font-weight: 600; box-shadow: var(--shadow-1); }
 .primary:hover { background: color-mix(in srgb, var(--accent), #000 12%); }
 .primary:active { transform: scale(var(--m-press, .96)); }
@@ -129,24 +130,30 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 .rail:hover { color: var(--accent); }
 .rail-label { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .06em; white-space: nowrap; }
 .rail-arrow { font-size: 15px; }
-.panel { flex: 0 0 46%; min-width: 380px; max-width: 720px; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); position: relative; }
+/* --edge — поле колонны слева: 14 px занимает кнопка сворачивания на границе (.panel-collapse) и ещё 16 px до текста,
+   как с остальных сторон колонны. Одно значение для строки вкладок и тел всех вкладок — их левые края совпадают
+   (замечание владельца 28.11: «текст очень близко к границе-кнопки — такая ситуация во всех вкладках»; было 16 и 18 px,
+   то есть 2–4 px от кнопки) */
+.panel { flex: 0 0 46%; min-width: 380px; max-width: 720px; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); position: relative; --edge: 30px; }
 .panel-collapse { position: absolute; left: 0; top: 0; bottom: 0; width: 14px; border: 0; background: var(--bg); color: var(--muted); padding: 0; font-size: 11px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .panel-collapse:hover { background: var(--hover); color: var(--accent); }
 /* одна строка (гайд tabs): тесно — строка прокручивается, а не переносится на вторую; полоса прокрутки скрыта.
+   flex: none обязателен: прокручиваемый блок умеет сжиматься (min-height: auto = 0), и в колонне с длинным документом
+   строка сжималась по высоте — вкладки обрезались сверху (замечание владельца «пропало верхнее меню»).
    От 1280 px шести вкладкам хватает места (ниже — сжатие по @media в конце файла), прокрутка нужна только у́же */
-.tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border-bottom: 1px solid var(--line); padding: 0 12px 0 18px; }
+.tabs { display: flex; flex: none; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border-bottom: 1px solid var(--line); padding: 0 12px 0 var(--edge); }
 .tabs::-webkit-scrollbar { display: none; }
-.tab { flex: none; white-space: nowrap; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 12px 14px; color: var(--muted); margin-bottom: -1px; }
+.tab { flex: none; white-space: nowrap; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 12px 8px; font-size: 14px; color: var(--muted); margin-bottom: -1px; }
 .tab:focus-visible { outline-offset: -2px; }   /* контур фокуса внутрь: прокручиваемая строка обрезала бы его снаружи */
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-.tab-body { flex: 1 1 auto; overflow-y: auto; padding: 16px; display: none; }
+.tab-body { flex: 1 1 auto; overflow-y: auto; padding: 16px 16px 16px var(--edge); display: none; }
 .tab-body.active { display: block; }
 
 /* тестовые инструменты стенда (служба качества, статистика, настройки — вкладки с data-demo): это не продукт,
    а показ «как это работает». Пока скрыты — в колонне одна «Документы»; показаны (кнопка в доке, app.js applyDemo)
    стоят отдельной группой после разделителя и обведены пунктиром; тело тестовой вкладки — с подписью */
 .panel:not(.demo-on) .tab[data-demo] { display: none; }
-.panel.demo-on .tab[data-tab="qc"] { margin-left: 12px; }
+.panel.demo-on .tab[data-tab="qc"] { margin-left: 10px; }
 .panel.demo-on .tab[data-tab="qc"]::before { content: ""; position: absolute; left: -8px; top: 10px; bottom: 10px; width: 1px; background: var(--line); }
 :where(.panel.demo-on .tab[data-demo]) { position: relative; }
 :where(.panel.demo-on .tab[data-demo]:not(.active)) { border-bottom-style: dashed; border-bottom-color: color-mix(in srgb, var(--ink) 30%, transparent); }
@@ -171,7 +178,7 @@ html[data-motion="v-aurora"] .panel.demo-on .tab[data-demo]:focus-visible { outl
 .qc-detail { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .qc-detail h3 { margin: 0; font-size: 15px; }
 .qc-detail .context { font-size: 13px; color: var(--muted); white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
-.qc-detail .answer { background: var(--qc-bg); border-radius: 8px; padding: 8px 10px; }
+.qc-detail .answer { background: var(--bg); border-radius: 8px; padding: 8px 10px; }
 .qc-form { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .qc-form input, .qc-form textarea { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--panel); color: var(--ink); }   /* фон и цвет темы: поле ответа читается и в тёмной */
 .qc-form input::placeholder, .qc-form textarea::placeholder { color: var(--muted); opacity: .8; }
@@ -198,7 +205,7 @@ html[data-motion="v-aurora"] .panel.demo-on .tab[data-demo]:focus-visible { outl
 .letter:hover, .letter.active { border-color: var(--accent); }
 .letter.active { box-shadow: inset 0 0 0 1px var(--accent); }
 .letter-full { margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-1); }
-#tab-qc .letter-full { border-color: var(--qc-line); border-left-color: var(--qc); background: var(--qc-bg); }   /* служба качества — как её ответы в чате: та же кромка цвета --qc */
+#tab-qc .letter-full { border-color: var(--line); border-left-color: var(--qc); background: var(--panel); }   /* письмо службы качества — документ на нейтральном фоне, цвет только в кромке */
 .letter-full h3 { margin: 0 0 6px; font-size: 15px; }
 .letter-meta { color: var(--muted); font-size: 12.5px; }
 .letter-text { margin: 8px 0 0; white-space: pre-wrap; font-family: inherit; font-size: 14px; line-height: 1.55; color: var(--ink); }
@@ -220,7 +227,7 @@ html:not(.no-mail) #tab-qc .qc-list { display: none; }
 .doc p.sub { padding-left: 18px; }
 .doc p.text { padding-left: 30px; color: var(--doc-text); }
 /* найденное место: мягкая плашка цвета акцента (--hl — в темах) и тонкая полоска слева, как у карточек источников.
-   Акцент, а не жёлтый маркер: розовое в стенде значит «служба качества», зелёное — «источник в регламенте» */
+   Акцент, а не жёлтый маркер: фиолетовое в стенде значит «служба качества», зелёное — «источник в регламенте» */
 .doc p.hl { background: var(--hl); border-radius: 6px; box-shadow: inset 3px 0 0 var(--accent); }
 @media (prefers-reduced-motion: no-preference) {
   .doc p.hl { animation: hl-in .8s var(--ease) 1; }   /* мягкий ореол сбегает на плашку — глаз находит место после прокрутки */
@@ -242,12 +249,12 @@ h4.sec { margin: 16px 0 6px; font-size: 13px; color: var(--muted); text-transfor
 .flight path { fill: none; stroke: var(--qc); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 1000; stroke-dashoffset: 1000; }
 .flight path.go { animation: fly .9s ease-out forwards; }
 @keyframes fly { to { stroke-dashoffset: 0; } }
-.fly-dot { fill: var(--qc); stroke: #fff; stroke-width: 1.5; }   /* белая окаёмка точки: на розовом пятне фона «Авроры» линия не теряется */
+.fly-dot { fill: var(--qc); stroke: #fff; stroke-width: 1.5; }   /* белая окаёмка точки: линия заметна на любом пятне фона «Авроры» */
 
 /* режимы: колонна свёрнута — чистый чат; развёрнута — полный стенд */
 .app.panel-closed .panel { display: none; }
 .app:not(.panel-closed) .rail { display: none; }
-.tab.close { margin-left: auto; }
+.tab.close { margin-left: auto; padding-left: 6px; padding-right: 6px; }   /* «▸» — только значок */
 .mode-user .rail, .mode-user .panel { display: none; }
 .mode-qc .chat, .mode-qc .rail, .mode-analytics .chat, .mode-analytics .rail { display: none; }
 .mode-qc .panel, .mode-analytics .panel { flex: 1 1 auto; max-width: none; min-width: 0; display: flex; }
@@ -258,7 +265,7 @@ html[data-theme="steel"] {
   --bg: #eef1f4; --panel: #fcfdfe; --ink: #1a2129; --muted: #5e6a78; --line: #d4dbe4;
   --accent: #35679c; --accent-ink: #ffffff; --ok: #1f7a4d; --warn: #96590a;
   --hl: color-mix(in srgb, var(--accent) 17%, var(--panel));
-  --qc: #c2276d; --qc-ink: #ffffff;
+  --qc: #6d28d9; --qc-ink: #ffffff;
   --ok-bg: #e2efe7; --warn-bg: #fcf2df; --warn-line: #ebd8ae;
   --doc-text: #222b34; --hover: #e6ebf2;
 }
@@ -266,7 +273,7 @@ html[data-theme="steel"] {
 html[data-theme="graphite"] {
   --bg: #14171b; --panel: #1e232a; --ink: #e7ebf1; --muted: #98a3b0; --line: #313944;
   --accent: #5d8ceb; --accent-ink: #0c1424; --ok: #4cc38a; --warn: #e0a458; --hl: color-mix(in srgb, var(--accent) 24%, transparent);
-  --qc: #f472b6; --qc-ink: #2a0a1b;
+  --qc: #b9a6fb; --qc-ink: #160d3a;
   --qc-bg: color-mix(in srgb, var(--qc) 14%, var(--panel)); --qc-line: color-mix(in srgb, var(--qc) 36%, var(--panel));
   --ok-bg: #1d3328;
   /* фон предупреждений — почти нейтральный, янтарными остаются текст и кромка: прежние #342b17 и #4e4020, как и --gold-bg/--gold-line
@@ -472,8 +479,8 @@ html[data-motion="v-aurora"] .ask textarea:focus { border-color: var(--accent); 
 html[data-motion="v-aurora"] .examples { border-radius: 18px; background: color-mix(in srgb, var(--panel) 84%, transparent); border-color: var(--hair); backdrop-filter: blur(20px); }
 html[data-motion="v-aurora"] .examples button { border-radius: 14px; }
 html[data-motion="v-aurora"] :is(.context-menu, .qc-item, .qc-detail, .card, .ticket, .weekly pre, .doc-pick button, .priority) { border-radius: 14px; }
-html[data-motion="v-aurora"] .tabs { gap: 3px; padding: 8px 12px 8px 20px; }   /* пять вкладок с счётчиками — в одну строку на колонне 1440 */
-html[data-motion="v-aurora"] .tab { margin-bottom: 0; padding: 8px 12px; border-radius: 999px; }
+html[data-motion="v-aurora"] .tabs { gap: 3px; padding: 8px 12px 8px var(--edge); }   /* край первой вкладки — на левом крае тел вкладок */
+html[data-motion="v-aurora"] .tab { margin-bottom: 0; padding: 8px; border-radius: 999px; }
 html[data-motion="v-aurora"] .tab.active { background: color-mix(in srgb, var(--accent) 18%, transparent); border-bottom-color: transparent; color: var(--acc-text); }
 @media (prefers-reduced-motion: no-preference) {
   html[data-motion="v-aurora"] body::before { animation: aur-drift 6s ease-out both; }   /* один медленный выдох, не бесконечность */
@@ -624,16 +631,15 @@ html[data-motion] .option.picked { background: color-mix(in srgb, var(--ink) 7%,
   .msg { max-width: 94%; }
 }
 
-/* узкое окно (ноутбук 1280–1560): шесть вкладок со счётчиками сжимаются, чтобы остаться в одну строку с кнопкой «▸».
-   Замер: переносилась именно «▸» — на 1366 не хватало 29 px, на 1440 — 20 px, на 1500 в «Слэке» — 18 px; шрифт 14 px
-   и поля 8 px дают ≈56 px запаса. С 1560 px шести вкладкам хватает места и в обычном виде (колонна 46 % ширины) */
-@media (max-width: 1560px) {
-  .tab, html[data-motion="v-aurora"] .tab { padding-left: 8px; padding-right: 8px; font-size: 14px; }
+/* строка вкладок всегда в сжатом виде (шрифт 14 px, поля 8 px): поле колонны слева выросло до --edge (замечание владельца 28.11),
+   и с обычными полями шесть вкладок не помещаются даже в колонне 720 px (замер: «Аврора» +3 px, «Слэк» +12 px).
+   Окно до 1400 px (колонна 46 % ширины = 598–644 px): поля вкладок 5 px, --edge 26 px, в «Авроре» пилюли вплотную —
+   строка помещается с однозначными счётчиками; с двузначными на самых узких прокручивается на несколько пикселей */
+@media (max-width: 1400px) {
+  .tab, html[data-motion="v-aurora"] .tab { padding-left: 5px; padding-right: 5px; }
   .tab.close, html[data-motion="v-aurora"] .tab.close { padding-left: 6px; padding-right: 6px; }
-  html[data-motion="v-aurora"] .tabs { padding-left: 14px; }
-  .panel.demo-on .tab[data-tab="qc"] { margin-left: 10px; }
-}
-@media (max-width: 1300px) {   /* 1280: поля 5 px — остаётся ≈20 px на двузначные счётчики */
-  .tab, html[data-motion="v-aurora"] .tab { padding-left: 5px; padding-right: 5px; font-size: 14px; }
-  .tabs { padding-left: 12px; padding-right: 8px; }
+  .panel { --edge: 26px; }
+  .tabs { padding-right: 8px; }
+  html[data-motion="v-aurora"] .tabs { gap: 0; }
+  .panel.demo-on .tab[data-tab="qc"] { margin-left: 6px; }
 }

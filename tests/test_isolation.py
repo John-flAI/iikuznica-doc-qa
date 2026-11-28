@@ -276,6 +276,43 @@ class KnowledgeUnits(unittest.TestCase):
         self.assertIn(own, [c[0].uid for c in unresolved.cites])
         self.assertNotIn(foreign, [c[0].uid for c in unresolved.cites])
 
+    def test_quality_service_answer_is_given_even_next_to_a_regulation(self):
+        """Кейс 3: рядом с записью службы качества модель цитирует и пункт регламента. Это иерархия источников
+        (регламент главнее, ответ службы качества — консультация), а не выбор между регламентами: уточнять не о чем."""
+        def decide(messages):
+            shown = messages[-1]['content']
+            if '[kb:' in shown:                                  # служба качества уже ответила — цитируем всё, что показано
+                return ok(json.dumps({'action': 'answer', 'cites': re.findall(r'\[(\S+?)\]', shown)}))
+            return ok('{"action": "not_found"}')
+        client, _, _ = stand(decide)
+        question = 'Как часто надо обновлять реестр рисков?'         # регламенты отвечают по-разному — кандидаты из нескольких
+        expert = 'Реестр рисков обновляет руководитель проекта не реже одного раза в две недели.'
+        first = client.post('/api/ask', json={'text': question}, headers=FIRST).json()
+        ticket = first['ticket']['id']
+        client.post('/api/tickets/%d/send' % ticket, headers=FIRST)
+        client.post('/api/tickets/%d/answer' % ticket, json={'answer': expert, 'author': 'Иван'}, headers=FIRST)
+        again = client.post('/api/ask', json={'session_id': first['session_id'], 'text': question}, headers=FIRST).json()
+        self.assertEqual(again['route'], 'answer')
+        self.assertEqual(again['sources'][0]['uid'], 'kb:%d' % ticket)
+        self.assertTrue(again['priority'])                      # в ответе есть ответ службы качества
+        self.assertTrue(again['conflict'])                      # рядом пункт регламента — интерфейс пояснит иерархию
+
+    def test_quality_service_answer_is_shown_verbatim_when_the_model_still_says_not_found(self):
+        """Кейс 3: служба качества ответила, а модель на повторный вопрос всё ещё твердит «нет ответа» —
+        агент показывает её ответ дословно и не заводит второй запрос."""
+        client, _, _ = stand(lambda m: ok('{"action": "not_found"}'))
+        question = 'Как часто надо обновлять реестр рисков?'
+        first = client.post('/api/ask', json={'text': question}, headers=FIRST).json()
+        ticket = first['ticket']['id']
+        client.post('/api/tickets/%d/send' % ticket, headers=FIRST)
+        client.post('/api/tickets/%d/answer' % ticket, json={'answer': EXPERT, 'author': 'Иван'}, headers=FIRST)
+        again = client.post('/api/ask', json={'session_id': first['session_id'], 'text': question}, headers=FIRST).json()
+        self.assertEqual((again['route'], 'ticket' in again), ('answer', False))
+        self.assertEqual([s['uid'] for s in again['sources']], ['kb:%d' % ticket])
+        self.assertEqual((again['text'], again['checks']['judge']), ('', 'quality'))
+        self.assertIn('Служба качества уже отвечала', again['notice'])
+        self.assertEqual(client.get('/api/tickets', headers=FIRST).json().__len__(), 1)      # второго запроса нет
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>ДокИИ</title>
-<link rel="stylesheet" href="/static/style.css?v=20261128j">
+<link rel="stylesheet" href="/static/style.css?v=20261128o">
 <script>
   // страница входа закрывает только чат сотрудника; отдельные экраны /qc и /analytics остаются открытыми, как были.
   // regqa.entered — прежняя отметка входа: кто вошёл до почты, видит стенд сразу (app.js переносит её в regqa.login)
@@ -35,19 +35,19 @@
       <div class="steps" id="thinking-steps"></div>
     </div>
     <div class="dock" role="group" aria-label="Оформление, тестовые инструменты и вход">
-      <button class="dock-btn" id="theme-toggle" type="button" role="switch" aria-checked="true" aria-label="Тёмная тема" data-tip="Тема: тёмная · нажмите — станет светлой">
+      <button class="dock-btn" id="theme-toggle" type="button" role="switch" aria-checked="true" aria-label="Тёмная тема" data-tip="Включить светлую тему">
         <svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <g class="half" data-half="steel"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.8v1.8M21.2 12h-1.8M12 21.2v-1.8M2.8 12h1.8M18.51 5.49l-1.28 1.28M18.51 18.51l-1.28-1.28M5.49 18.51l1.28-1.28M5.49 5.49l1.28 1.28"/></g>
           <g class="half s" data-half="graphite" transform="translate(1.2 1.2) scale(.9)"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></g>
         </svg>
       </button>
-      <button class="dock-btn" id="skin-toggle" type="button" aria-label="Оформление: Аврора. Переключить на Слэк" data-tip="Оформление: Аврора · нажмите — станет Слэк">
+      <button class="dock-btn" id="skin-toggle" type="button" aria-label="Оформление: Аврора. Переключить на Слэк" data-tip="Включить оформление Слэк">
         <svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <g class="half" data-half="v-aurora"><rect x="3" y="4.8" width="18" height="14.4" rx="2.6"/><path d="M3 9.2h18"/></g>
           <g class="half" data-half="v-slack"><rect x="3" y="4.8" width="18" height="14.4" rx="2.6"/><path d="M9.8 4.8v14.4"/><path class="fs" d="M5.6 4.8h4.2v14.4H5.6A2.6 2.6 0 0 1 3 16.6V7.4a2.6 2.6 0 0 1 2.6-2.6z"/></g>
         </svg>
       </button>
-      <button class="dock-btn" id="demo-toggle" type="button" role="switch" aria-checked="false" aria-label="Тестовые инструменты: скрыты. Показать" data-tip="Тестовые инструменты: скрыты · нажмите — показать службу качества, почту клиента, статистику и настройки">
+      <button class="dock-btn" id="demo-toggle" type="button" role="switch" aria-checked="false" aria-label="Тестовые инструменты: скрыты. Показать" data-tip="Показать тестовые инструменты">
         <svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path class="line" d="M9.3 3h5.4M10.6 3v5.4l-3.66 9.2a1.9 1.9 0 0 0 1.76 2.6h6.6a1.9 1.9 0 0 0 1.76-2.6L13.4 8.4V3"/>
           <path class="liquid" d="M10.41 13.6h3.18l1.28 3.2a1.2 1.2 0 0 1-1.11 1.65h-3.52a1.2 1.2 0 0 1-1.11-1.65z"/>
@@ -102,13 +102,13 @@
     </section>
     <section class="tab-body active" id="tab-docs">
       <div class="doc-pick" id="doc-pick"></div>
-      <div class="doc" id="doc"><p class="empty">Здесь открывается регламент из ответа агента — с подсветкой нужного места. Нажмите на источник под ответом.</p></div>
+      <div class="doc" id="doc"><p class="empty">Регламент откроется здесь, если нажать на источник под ответом.</p></div>
     </section>
     <section class="tab-body" id="tab-stats"></section>
     <section class="tab-body" id="tab-settings">
       <div class="settings-block">
         <h2 class="settings-title">Модель</h2>
-        <p class="settings-note">Модель, которая отвечает на вопросы. Переключается сразу и запоминается в браузере.</p>
+        <p class="settings-note">Переключается сразу и запоминается в браузере.</p>
         <div class="model-tabs" id="model-chips" role="radiogroup" aria-label="Модель, которая отвечает на вопросы"></div>
         <p class="settings-empty" id="model-empty" hidden>На этом стенде одна модель — выбирать не из чего.</p>
       </div>
@@ -118,7 +118,7 @@
       </div>
       <div class="settings-block mail-block">
         <h2 class="settings-title">Почта</h2>
-        <p class="settings-note">Адреса стенда и отправка писем. Сам ящик сотрудника — тестовая вкладка «Почта клиента».</p>
+        <p class="settings-note">Ящик сотрудника — на вкладке «Почта клиента».</p>
         <dl class="settings-facts" id="mail-facts"></dl>
       </div>
     </section>
@@ -134,12 +134,12 @@
     <label class="gate-field">Пароль
       <input id="gate-pass" type="password" readonly autocomplete="current-password" aria-describedby="gate-note">
     </label>
-    <p class="gate-note" id="gate-note">Данные заполнены заранее — для демонстрации их нельзя изменить.</p>
+    <p class="gate-note" id="gate-note">Поля заполнены заранее: это демонстрация.</p>
     <button class="primary" id="gate-enter" type="submit">Войти</button>
     <p class="gate-error" id="gate-error" role="alert" hidden></p>
   </form>
 </section>
 <svg class="flight" id="flight"><path id="flight-path" d=""/><circle class="fly-dot" id="fly-dot" r="5"/></svg>
-<script src="/static/app.js?v=20261128j"></script>
+<script src="/static/app.js?v=20261128o"></script>
 </body>
 </html>

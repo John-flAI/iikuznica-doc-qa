@@ -211,6 +211,8 @@ class Agent:
             self.decide_clarify(choice, decision, query, scope, kb)
         elif choice.get('action') == 'smalltalk':
             self.decide_smalltalk(choice, decision, candidates)
+        if decision.route == 'not_found':
+            self.quality_service_answer(decision, candidates, question)
         return decision
 
     def no_fragments(self, question, history, decision):
@@ -227,6 +229,18 @@ class Agent:
         choice = self.parse(reply.text) if reply.ok else {}
         if choice.get('kind') == 'smalltalk':
             decision.route, decision.text = SMALLTALK, self.talk(choice.get('reply'))
+
+    def quality_service_answer(self, decision, candidates, question):
+        """Модель сказала «нет ответа», а служба качества на этот вопрос уже отвечала — своя запись найдена и близка:
+        показываем её ответ дословно, без текста модели. Повторный вопрос не должен снова уходить в службу качества."""
+        wanted = subject_words(question)
+        found = [c for uid, c in candidates.items() if c[0] is not None and c[0].doc == KNOWLEDGE
+                 and self.relevance(c[1], c[2]) >= self.min_similarity
+                 and (not self.check_subject or names_the_unit(wanted, c[0]))]
+        if not found:
+            return
+        decision.route, decision.cites, decision.text = 'answer', found, ''
+        decision.checks = {'attempts': 0, 'judge': 'quality', 'issues': [], 'offsubject': list(decision.offsubject)}
 
     def decide_smalltalk(self, choice, decision, candidates):
         """Модель увидела разговор не по делу. Рабочий вопрос она может принять за болтовню, только если
@@ -317,7 +331,8 @@ class Agent:
             decision.route = 'not_found'
             return
         regulations = list(dict.fromkeys(c[0].doc for c in passing))
-        if len(regulations) > 1 and not scope and not (choice.get('same') is True and self.consistent(passing)):
+        consulted = KNOWLEDGE in regulations       # с ответом службы качества среди источников — иерархия, а не выбор
+        if len(regulations) > 1 and not scope and not consulted                 and not (choice.get('same') is True and self.consistent(passing)):
             # регламенты отвечают по-разному, а сотрудник ещё не сказал, какой его
             decision.route = 'clarify'
             decision.question = 'Ответ зависит от регламента. В каком вы работаете?'
