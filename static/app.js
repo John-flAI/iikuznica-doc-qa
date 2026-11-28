@@ -81,37 +81,72 @@ function sourceCard(source) {
   return card;
 }
 
+const ICONS = {   // значки карточки запроса: бумажный самолётик — черновик, галочка — отправлено
+  send: '<path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+};
+function icon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.innerHTML = ICONS[name];
+  return svg;
+}
+
+let lastUserText = '';   // последний показанный вопрос сотрудника: запасной источник текста вопроса для карточки (старый сервер не присылает ticket.question)
+
+function ticketIco(name) {
+  const node = el('span', 't-ico');
+  node.setAttribute('aria-hidden', 'true');
+  node.append(icon(name));
+  return node;
+}
+
+// после отправки и в истории на месте карточки — компактная строка; текст «ожидайте ответа» пишет в чат сервер
+// своим сообщением (route = sent), поэтому второго предложения здесь нет
+function ticketDone(id, status, result) {
+  const done = el('div', 'ticket done');
+  done.dataset.ticket = id;   // по номеру карточку находит форма ответа службы качества — меняет «отправлен» на «отвечен» без перезагрузки
+  done.append(ticketIco('check'), el('span', 't-text', 'Запрос № ' + id + ' · ' + (status === 'answered' ? 'отвечен' : 'отправлен')));
+  if (result && result.letter_delivered === true) done.append(el('span', 'sent-mail', 'Письмо отправлено в службу качества'));   // только когда сервер подтвердил доставку
+  return done;
+}
+
+// карточка «нет ответа» — деловая форма (слово владельца 28.11): номер, вопрос сотрудника дословно, одна кнопка «Отправить».
+// Текст письма сотрудник не видит — оно уходит в ящик службы качества
 function ticketBlock(message) {
   const meta = message.meta || {};
   const ticket = meta.ticket, state = ticketMap[ticket.id] || { status: 'draft' };
+  if (state.status !== 'draft') return ticketDone(ticket.id, state.status);
+  // вопрос дословно — поле сервера; на старом сервере его нет — строка письма в «кавычках-ёлочках» или вопрос из ленты выше
+  const question = ticket.question || (String(ticket.letter || '').match(/^«(.+)»\s*$/m) || [])[1] || lastUserText || '';
   const box = el('div', 'ticket');
-  box.append(el('div', 'where', 'Письмо в службу качества, запрос №' + ticket.id),
-             el('pre', '', ticket.letter));
-  if (state.status === 'draft') {
-    const row = el('div', 'row');
-    row.append(button('primary gold', 'Отправить в службу качества', async (event) => {
-      event.target.disabled = true;
-      const from = event.target.getBoundingClientRect();     // кнопку заменит «Отправлено» — запоминаем, где она была
-      try {
-        const result = await api('/api/tickets/' + ticket.id + '/send', { method: 'POST' });
-        ticketMap[ticket.id] = { status: 'open' };
-        const sent = el('div', 'sent', 'Отправлено. Ответ службы качества появится в этом чате.');
-        if (result && result.letter_delivered === true) sent.append(el('div', 'sent-mail', 'Письмо отправлено в службу качества'));   // только когда сервер подтвердил доставку
-        row.replaceWith(sent);
-        if (!demoOn()) applyDemo(true, true);   // письмо уходит в ящик службы качества — тестовые инструменты показываются, колонна откроется на ящике
-        loadMail();                             // не ждём: новое письмо должно быть в списке, когда линия долетит
-        await flyToPanel(from);
-        openPanel('qc');
-      } catch (error) {
-        row.replaceWith(el('div', 'notice', 'Не получилось отправить: ' + error.message));
-      }
-    }));
-    box.append(row);
-  } else {
-    box.append(el('div', 'sent', state.status === 'answered'
-      ? 'Отправлено. Служба качества ответила — см. ниже.'
-      : 'Отправлено. Ответ службы качества появится в этом чате.'));
-  }
+  box.dataset.ticket = ticket.id;
+  const head = el('div', 't-head');
+  head.append(ticketIco('send'), el('b', 't-title', 'Запрос в службу качества'), el('span', 't-num', '№ ' + ticket.id));
+  const q = el('p', 't-q');
+  q.append(el('span', 't-label', 'Ваш вопрос'), question ? '«' + question + '»' : 'не сохранился');
+  const row = el('div', 'row');
+  const submit = button('primary qc', '', async (event) => {
+    const target = event.currentTarget;             // сама кнопка (внутри — значок: event.target мог бы оказаться им)
+    target.disabled = true;
+    const from = target.getBoundingClientRect();     // карточку заменит компактная строка — запоминаем, где была кнопка
+    try {
+      const result = await api('/api/tickets/' + ticket.id + '/send', { method: 'POST' });
+      ticketMap[ticket.id] = { status: 'open' };
+      box.replaceWith(ticketDone(ticket.id, 'open', result));
+      if (!demoOn()) applyDemo(true, true);   // запрос уходит в ящик службы качества — тестовые инструменты показываются, колонна откроется на ящике
+      loadMail();                             // не ждём: новое письмо должно быть в списке, когда линия долетит
+      await flyToPanel(from);
+      openPanel('qc');
+    } catch (error) {
+      row.replaceWith(el('div', 'notice', 'Не получилось отправить: ' + error.message));
+    }
+  });
+  submit.append(icon('send'), el('span', '', 'Отправить'));
+  row.append(submit);
+  box.append(head, q, row);
   return box;
 }
 
@@ -126,9 +161,11 @@ function show(entry) {
   if (entry.role === 'user') {
     const node = el('div', 'msg user');
     node.append(el('div', 'bubble', entry.text));
+    lastUserText = entry.text;
     messagesEl.append(node);
   } else if (entry.role === 'system') {
-    messagesEl.append(el('div', 'msg system', entry.text));
+    // об отправке запроса (route = sent) сервер пишет своей строкой — показываем её строкой-статусом службы качества; текст не меняется
+    messagesEl.append(el('div', 'msg system' + (meta.route === 'sent' ? ' sent' : ''), entry.text));
   } else if (entry.role === 'qc') {
     const node = el('div', 'msg qc');
     node.append(el('div', 'who', 'Служба качества' + (meta.author && meta.author !== 'Служба качества' ? ' · ' + meta.author : '') +
@@ -231,7 +268,7 @@ $('#panel-close').addEventListener('click', () => app.classList.add('panel-close
 $('#panel-collapse').addEventListener('click', () => app.classList.add('panel-closed'));   // узкая кнопка на границе чата и колонны
 app.querySelectorAll('.tab[data-tab]').forEach((node) => node.addEventListener('click', () => showTab(node.dataset.tab)));
 
-/* золотая линия: письмо уходит из чата к службе качества (панель открыта — в её заголовок,
+/* линия полёта: запрос уходит из чата к службе качества (панель открыта — в её заголовок,
    закрыта — к рельсе справа, откуда панель потом открывается) */
 function flyToPanel(a) {
   const b = panel.getBoundingClientRect();
@@ -276,7 +313,7 @@ async function loadTickets() {
   tickets.forEach((ticket) => { ticketMap[ticket.id] = ticket; });
   const list = $('#qc-list');
   list.replaceChildren();
-  if (!tickets.length) list.append(el('div', 'empty', 'Запросов пока нет. Они появятся здесь, когда сотрудник отправит письмо из чата.'));
+  if (!tickets.length) list.append(el('div', 'empty', 'Запросов пока нет. Они появятся здесь, когда сотрудник отправит запрос из чата.'));
   tickets.forEach((ticket) => {
     const item = button('qc-item ' + ticket.status, '', () => selectTicket(ticket.id));
     item.append(el('span', 'n', '№' + ticket.id + ' · ' + ticket.question.slice(0, 90)),
@@ -311,8 +348,10 @@ function selectTicket(id) {
         await loadTickets();
         await loadMail();                 // в ящике службы качества появляется исходящее «Ответ службы качества»
         busy = true;
-        try { await flyToChat(from); } finally { busy = false; }   // золотая линия возвращается в чат; опрос сессии ждёт её
+        try { await flyToChat(from); } finally { busy = false; }   // линия возвращается в чат; опрос сессии ждёт её
         await tick();                     // ответ службы сразу появляется в чате — без ожидания опроса сессии
+        const card = messagesEl.querySelector('.ticket[data-ticket="' + ticket.id + '"]');   // карточка запроса в чате — сразу «отвечен», без перезагрузки
+        if (card) card.replaceWith(ticketDone(ticket.id, 'answered'));
         // слово владельца: колонна сворачивается с задержкой 1–2 с, когда сообщение дошло до чата; за эти полторы
         // секунды в колонну тыкнули (следующий ответ) — оставляем открытой
         let held = false;
@@ -355,7 +394,7 @@ async function showDocument(source) {
   });
   docEl.replaceChildren();
   if (source.doc === 'kb') {
-    docEl.append(el('h2', '', 'Ответ службы качества'), el('p', 'text', source.quote));
+    docEl.append(el('h2', 'kb', 'Ответ службы качества'), el('p', 'text', source.quote));
     return;
   }
   docEl.append(el('div', 'empty', 'Открываю регламент…'));
@@ -833,6 +872,7 @@ const HINTS = [
   ['.option', 'Выбрать этот вариант — он уйдёт как ваш ответ'],
   ['.ticket .primary', 'Письмо уйдёт в службу качества, ответ придёт в этот чат'],
   ['.msg.agent > .primary', 'Задать последний вопрос ещё раз'],
+  ['.ticket .primary', 'Запрос уйдёт в ящик службы качества — ответ появится в этом чате'],
   ['.qc-item', 'Показать запрос'],
   ['.qc-form .primary', 'Ответ уйдёт сотруднику в чат и попадёт в базу знаний'],
   ['#weekly', 'Отчёт службы качества за 7 дней'],
