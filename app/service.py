@@ -7,7 +7,13 @@
 ответ службы качества — консультация о том, как применять его нормы (позиция заказчика, Q&A 27.11).
 """
 import json
+import os
+import threading
 import time
+import urllib.request
+from pathlib import Path
+
+RESET_EXIT = True       # кнопка сброса завершает процесс (контейнер поднимается с пустой базой) — в тестах выключают
 
 from . import config, mail
 from .agent import KNOWLEDGE, Agent, Decision
@@ -317,3 +323,29 @@ class Service:
         lines += ['%d. %s — спросили %d раз(а)' % (i, row['question'], row['n'])
                   for i, row in enumerate(unanswered, 1)]
         return {'days': days, 'proposals': unanswered, 'text': '\n'.join(lines)}
+
+    def stand_reset(self, confirm):
+        """Сброс демо-данных стенда (кнопка «Настройки → Стенд и API», слово владельца 28.11 10:05 МСК:
+        «Можно добавить кнопку в настройки - сброс стенда» — сброс между дублями записи видео). То же,
+        что прибор stand_reset.py: база переносится в бэкап в томе, тестовый ящик очищается, процесс
+        завершается — контейнер поднимается с пустой базой. Регламенты, индекс и конфиг не трогаются.
+        Подтверждение — ровно «СБРОС»; без него ничего не происходит."""
+        if confirm != 'СБРОС':
+            raise ValueError('подтверждение должно быть ровно «СБРОС»')
+        self.store.close_all()                                   # все соединения закрываем до переименования файла
+        stamp = time.strftime('%y%m%d-%H%M%S')
+        base = Path(self.store.path)                             # база этого стенда — по пути хранилища
+        renamed = []
+        for suffix in ('', '-wal', '-shm'):
+            source = base.parent / (base.name + suffix)
+            if source.exists():
+                source.rename(base.parent / ('%s.demo-%s%s' % (base.name, stamp, suffix)))
+                renamed.append(base.name + suffix)
+        try:                                                     # тестовый ящик (mailpit) — если он есть на стенде
+            request = urllib.request.Request('http://mailpit:8025/api/v1/messages', method='DELETE')
+            urllib.request.urlopen(request, timeout=5)
+        except OSError:
+            pass
+        if RESET_EXIT:                                           # в тестах выключаем — процесс живёт
+            threading.Timer(0.6, os._exit, args=(0,)).start()    # контейнер поднимется сам (restart=unless-stopped)
+        return renamed

@@ -60,6 +60,10 @@ class SessionIn(BaseModel):
     model: str | None = Field(None, max_length=64)      # id модели из списка в /api/health; нет — модель по умолчанию
 
 
+class ResetIn(BaseModel):
+    confirm: str = Field('', max_length=20)             # кнопка присылает ровно «СБРОС» — защита от случайного клика
+
+
 class ModelIn(BaseModel):
     model: str = Field(max_length=64)
 
@@ -300,6 +304,18 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
             return service.answer(ticket_id, body.answer, body.author)
         except ValueError as e:
             raise HTTPException(400, str(e))
+
+    @app.post('/api/stand/reset')
+    def stand_reset(body: ResetIn, request: Request):
+        """Кнопка «Настройки → Стенд и API → Сбросить стенд»: то же, что прибор stand_reset.py —
+        база диалогов/запросов/писем переносится в бэкап в томе, тестовый ящик очищается, процесс
+        завершается — контейнер (restart=unless-stopped) поднимается с пустой базой. Регламенты,
+        векторный индекс и конфиг не трогаются: сбрасываются только данные демо."""
+        try:
+            svc(request).stand_reset(body.confirm)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {'ok': True, 'text': 'Стенд сброшен: база в бэкапе, ящик очищен, стенд перезапускается — страница обновится сама.'}
 
     @app.get('/api/document/{doc_id}')
     def document(doc_id: str, request: Request):

@@ -50,6 +50,7 @@ class Store:
     def __init__(self, path):
         self.path = str(path)
         self.local = threading.local()
+        self._all_conns = []                                     # все открытые соединения — для close_all (сброс стенда)
         with self.connect() as conn:
             conn.executescript(SCHEMA)
             columns = {row[1] for row in conn.execute('PRAGMA table_info(sessions)')}
@@ -68,7 +69,19 @@ class Store:
             conn = self.local.conn = sqlite3.connect(self.path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             conn.execute('PRAGMA journal_mode=WAL')
+            self._all_conns.append(conn)                         # реестр для close_all (сброс стенда)
         return conn
+
+    def close_all(self):
+        """Закрыть все соединения всех потоков: перед сбросом стенда файл базы переименовывается в бэкап,
+        а на Windows открытые соединения переименование блокируют."""
+        for conn in list(self._all_conns):
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+        self._all_conns = []
+        self.local = threading.local()                           # старые соединения больше не выдаются
 
     def _one(self, sql, *args):
         row = self.connect().execute(sql, args).fetchone()

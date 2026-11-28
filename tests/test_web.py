@@ -35,6 +35,25 @@ class Stand(unittest.TestCase):
     def setUpClass(cls):
         cls.client = client_for(lambda m: ok('{"action": "not_found"}'))
 
+    def test_stand_reset_moves_the_database_to_a_backup(self):
+        """Кнопка «Сбросить стенд»: без ровного «СБРОС» — 400 и база на месте; с ним — база в бэкапе,
+        процесс живёт (exit выключен в тесте), ответ честный."""
+        from app import service as service_module
+        llm = FakeLLM(ok('{}'))
+        llm.chat = lambda messages, max_tokens=600, temperature=0: ok('{}')
+        state = Path(tempfile.mkdtemp())
+        service = Service(load_engine(DATA, with_vectors=False), llm, Store(state / 'state.db'))
+        client = TestClient(create_app(service, with_vectors=False, ask_limit=0))
+        client.post('/api/ask', json={'text': 'Кто готовит ТКП?'})
+        wrong = client.post('/api/stand/reset', json={'confirm': 'сброс'})
+        self.assertEqual(wrong.status_code, 400)
+        self.assertTrue((state / 'state.db').exists())                   # без подтверждения база на месте
+        with mock.patch.object(service_module, 'RESET_EXIT', False):
+            response = client.post('/api/stand/reset', json={'confirm': 'СБРОС'})
+        self.assertEqual(response.json()['ok'], True)
+        self.assertFalse((state / 'state.db').exists())                  # база переехала в бэкап
+        self.assertTrue(list(state.glob('state.db.demo-*')))
+
     def test_pages_and_robots(self):
         for path in ('/', '/user', '/qc', '/analytics'):
             self.assertEqual(self.client.get(path).status_code, 200)

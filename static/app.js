@@ -744,6 +744,27 @@ function paintModelChips() {
 }
 app.querySelectorAll('.tab[data-tab="settings"]').forEach((node) => node.addEventListener('click', () => { paintModelChips(); loadMail(); }));   // кнопки моделей и справочные адреса почты
 
+/* ---- сброс стенда (слово владельца 28.11: кнопка в «Настройках» между дублями записи видео; карточка VI01).
+   POST /api/stand/reset {confirm: 'СБРОС'} — база уходит в бэкап в томе, ящик очищается, сервер завершается
+   и поднимается контейнером с пустой базой; страница сама дождётся здоровья и перезагрузится ---- */
+const resetBtn = $('#stand-reset');
+if (resetBtn) resetBtn.addEventListener('click', async () => {
+  if (!window.confirm('Сбросить стенд? Диалоги, запросы, письма и база знаний обнулятся — база сохранится в бэкапе на стенде.')) return;
+  resetBtn.disabled = true;
+  $('#stand-reset-note').hidden = false;
+  try {
+    await fetch('/api/stand/reset', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({confirm: 'СБРОС'})});
+  } catch (err) { /* сервер мог уйти на перезапуск до ответа — это часть процедуры */ }
+  for (let i = 0; i < 60; i++) {           // ждём чистый стенд: health должен ответить без знания
+    try {
+      const health = await fetch('/api/health');
+      if ((await health.json()).knowledge === 0) break;
+    } catch (err) { /* ещё перезапускается */ }
+    await new Promise((done) => setTimeout(done, 1500));
+  }
+  window.location.reload();
+});
+
 /* ---- почта (имитация): ящик службы качества — на одноимённой вкладке (письмо + под ним прежняя карточка запроса
    с формой ответа); ящик сотрудника — вкладка «Почта клиента» (слово владельца 28.11: почту клиента оставить,
    так и обозвать, держать в тестовых инструментах — на стартовом экране её не видно). Контракт — _out/почта_отчёт.md: GET /api/letters?role=quality|client (список),
