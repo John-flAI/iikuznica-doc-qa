@@ -132,8 +132,12 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 .panel { flex: 0 0 46%; min-width: 380px; max-width: 720px; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); position: relative; }
 .panel-collapse { position: absolute; left: 0; top: 0; bottom: 0; width: 14px; border: 0; background: var(--bg); color: var(--muted); padding: 0; font-size: 11px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .panel-collapse:hover { background: var(--hover); color: var(--accent); }
-.tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding: 0 12px 0 18px; }
-.tab { background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 12px 14px; color: var(--muted); margin-bottom: -1px; }
+/* одна строка (гайд tabs): тесно — строка прокручивается, а не переносится на вторую; полоса прокрутки скрыта.
+   От 1280 px шести вкладкам хватает места (ниже — сжатие по @media в конце файла), прокрутка нужна только у́же */
+.tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border-bottom: 1px solid var(--line); padding: 0 12px 0 18px; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: none; white-space: nowrap; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 12px 14px; color: var(--muted); margin-bottom: -1px; }
+.tab:focus-visible { outline-offset: -2px; }   /* контур фокуса внутрь: прокручиваемая строка обрезала бы его снаружи */
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .tab-body { flex: 1 1 auto; overflow-y: auto; padding: 16px; display: none; }
 .tab-body.active { display: block; }

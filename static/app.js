@@ -258,6 +258,8 @@ function showTab(name) {
   tab = name;
   app.querySelectorAll('.tab').forEach((node) => node.classList.toggle('active', node.dataset.tab === name));
   app.querySelectorAll('.tab-body').forEach((node) => node.classList.toggle('active', node.id === 'tab-' + name));
+  const activeTab = app.querySelector('.tab.active');   // строка вкладок прокручивается: выбранная вкладка остаётся в поле зрения (гайд tabs)
+  if (activeTab) activeTab.scrollIntoView({ block: 'nearest', inline: 'nearest', container: 'nearest' });
   if (name === 'qc') loadTickets();
   if (name === 'stats') loadStats();
   if (name === 'docs' && sources.length) showDocument(sources[0]);
