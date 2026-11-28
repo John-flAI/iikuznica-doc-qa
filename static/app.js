@@ -313,6 +313,14 @@ function selectTicket(id) {
         busy = true;
         try { await flyToChat(from); } finally { busy = false; }   // золотая линия возвращается в чат; опрос сессии ждёт её
         await tick();                     // ответ службы сразу появляется в чате — без ожидания опроса сессии
+        // слово владельца: колонна сворачивается с задержкой 1–2 с, когда сообщение дошло до чата; за эти полторы
+        // секунды в колонну тыкнули (следующий ответ) — оставляем открытой
+        let held = false;
+        const hold = () => { held = true; };
+        panel.addEventListener('pointerdown', hold);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        panel.removeEventListener('pointerdown', hold);
+        if (!held) app.classList.add('panel-closed');
       } catch (error) {
         form.append(el('div', 'notice', 'Не получилось: ' + error.message));
         event.target.disabled = false;
@@ -641,9 +649,10 @@ demoBtn.addEventListener('click', () => { applyDemo(!demoOn(), true); loadMail()
 applyDemo(mode === 'full' ? localStorage.getItem('regqa.demo') === '1' : true, false);   // без сохранённого выбора — скрыты; экраны /qc и /analytics — сами инструменты
 if (mode === 'full') showTab('docs');
 
-/* ---- вкладка «Настройки» (тестовый инструмент): выбор модели кнопками-переключателями. Список #model-switch в
-   шапке заполняет исполнитель (setupModels), он же хранит выбор и ходит на сервер; список скрыт оформлением,
-   а кнопки только ставят в нём значение и вызывают его же событие change — логика запросов не тронута ---- */
+/* ---- вкладка «Настройки» (тестовый инструмент): три блока по слову владельца — «модели, айпи, почта». Модель —
+   кнопками-переключателями: список #model-switch в шапке заполняет исполнитель (setupModels), он же хранит выбор и
+   ходит на сервер; список скрыт оформлением, а кнопки только ставят в нём значение и вызывают его же событие change —
+   логика запросов не тронута. «Стенд и API» и «Почта» — справочные (блок «почта» ниже) ---- */
 
 const modelPick = $('#model-switch'), modelChips = $('#model-chips');
 function paintModelChips() {
@@ -663,20 +672,17 @@ function paintModelChips() {
     return chip;
   }));
 }
-app.querySelectorAll('.tab[data-tab="settings"]').forEach((node) => node.addEventListener('click', paintModelChips));
+app.querySelectorAll('.tab[data-tab="settings"]').forEach((node) => node.addEventListener('click', () => { paintModelChips(); loadMail(); }));   // кнопки моделей и справочные письма сотрудника
 
 /* ---- почта (имитация): ящик службы качества — на одноимённой вкладке (письмо + под ним прежняя карточка запроса
-   с формой ответа), ящик сотрудника — на вкладке «Почта» и по кнопке в шапке. Контракт — _out/почта_отчёт.md:
-   GET /api/letters?role=quality|client (список), GET /api/letter/{id} (целиком). Здесь только чтение: список, письмо
-   и счётчик непрочитанных (прочитанное помним в браузере, regqa.read). На сервере без почты (нет accounts в health,
-   либо 404/405) — html.no-mail: «Почта» спрятана, ящик службы качества остаётся прежним списком запросов ---- */
+   с формой ответа); ящик сотрудника — справочный список на вкладке «Настройки» (слово владельца: информационная
+   строка, с ней не взаимодействуем). Контракт — _out/почта_отчёт.md: GET /api/letters?role=quality|client (список),
+   GET /api/letter/{id} (целиком). Здесь только чтение: список, письмо и счётчик непрочитанных (прочитанное помним
+   в браузере, regqa.read). На сервере без почты (нет accounts в health, либо 404/405) — html.no-mail: блок почты
+   на «Настройках» спрятан, ящик службы качества остаётся прежним списком запросов ---- */
 
-const MAIL = {
-  quality: { list: '#qc-mail-list', detail: '#qc-letter', name: '#qc-mail-name', addr: '#qc-mail-addr',
-             empty: 'Писем пока нет. Здесь появится письмо, когда сотрудник отправит запрос из чата.' },
-  client: { list: '#mail-list', detail: '#mail-detail', name: '#mail-name', addr: '#mail-addr',
-            empty: 'Писем пока нет. Сюда приходят письма агента: что вопрос передан в службу качества и что служба ответила.' },
-};
+const QC_MAIL = { list: '#qc-mail-list', detail: '#qc-letter', name: '#qc-mail-name', addr: '#qc-mail-addr',
+                  empty: 'Писем пока нет. Здесь появится письмо, когда сотрудник отправит запрос из чата.' };
 const KIND_WORDS = { question: 'вопрос', notice: 'уведомление', reply: 'ответ', answer: 'ответ' };
 const boxes = { quality: null, client: null };        // письма ящиков из API; null — ещё не получены
 let mailOn = true, mailBusy = false, openedLetter = null;   // { role, id } — открытое письмо, подсвечено в списке
@@ -704,22 +710,53 @@ function letterRow(letter, role) {
 function paintMail() {
   if (!mailOn) return;
   setBadge($('#qc-badge'), unreadIn('quality'));
-  setBadge($('#mail-badge'), unreadIn('client'));
-  setBadge($('#mail-tab-badge'), unreadIn('client'));
-  Object.entries(MAIL).forEach(([role, parts]) => {
-    $(parts.name).textContent = accounts[role].name;
-    $(parts.addr).textContent = accounts[role].email;
-    const letters = boxes[role];
-    $(parts.list).replaceChildren(...(letters && letters.length ? letters.map((letter) => letterRow(letter, role)) : [el('div', 'empty', parts.empty)]));
-  });
+  $(QC_MAIL.name).textContent = accounts.quality.name;
+  $(QC_MAIL.addr).textContent = accounts.quality.email;
+  const letters = boxes.quality;
+  $(QC_MAIL.list).replaceChildren(...(letters && letters.length ? letters.map((letter) => letterRow(letter, 'quality')) : [el('div', 'empty', QC_MAIL.empty)]));
+  paintMailInfo();
 }
 
-/* список обоих ящиков; ящик службы качества спрашиваем, только когда его видно (инструменты показаны или вкладка открыта) */
+/* «Настройки», справочные блоки (слово владельца: модели, «айпи», почта). Только показ того, что уже прислал сервер */
+function fact(name, value) {
+  const row = el('div', 'fact');
+  row.append(el('dt', '', name), el('dd', '', value));
+  return row;
+}
+function paintStandFacts() {
+  const models = (standHealth && standHealth.models) || [];
+  $('#stand-facts').replaceChildren(
+    fact('Адрес стенда (IP)', location.host),
+    fact('API моделей', models.length ? models.map((m) => m.label.replace(' · ', ' — ')).join(', ') : 'на сервере не объявлено'),
+    fact('Лимит вопросов', standHealth && standHealth.ask_limit > 0 ? 'до ' + standHealth.ask_limit + ' в час с одного IP' : 'без лимита'),
+  );
+}
+function infoRow(letter) {
+  const row = el('div', 'letter info');   // не кнопка: с письмами сотрудника не взаимодействуем
+  row.append(el('span', 'dot'), el('span', 'subj', letter.subject), el('span', 'when', when(letter.created)),
+             el('span', 'route', 'От: ' + who(letter.from) + ' · входящее' + (KIND_WORDS[letter.kind] ? ' · ' + KIND_WORDS[letter.kind] : '')),
+             el('span', 'snip', (letter.snippet || '').replace(/\s+/g, ' ')));
+  return row;
+}
+function paintMailInfo() {
+  $('#mail-facts').replaceChildren(
+    fact('Сотрудник', accounts.client.email),
+    fact('Служба качества', accounts.quality.email),
+    fact('Агент', accounts.agent.email),
+    fact('Отправка', standHealth && standHealth.mail && standHealth.mail.smtp ? 'включена — письма уходят на почтовый сервер стенда' : 'выключена — письма хранятся на стенде'),
+  );
+  const letters = boxes.client;
+  $('#mail-list').replaceChildren(...(letters && letters.length ? letters.map(infoRow) : [el('div', 'empty', 'Писем сотруднику пока нет.')]));
+}
+
+/* список ящиков; ящик службы качества спрашиваем, только когда его видно (инструменты показаны или вкладка открыта),
+   письма сотрудника — только пока открыты «Настройки» */
 async function loadMail() {
   if (!mailOn || mailBusy) return;
   mailBusy = true;
-  const roles = ['client'];
+  const roles = [];
   if (demoOn() || tab === 'qc') roles.push('quality');
+  if (tab === 'settings') roles.push('client');
   try {
     const lists = await Promise.all(roles.map((role) => api('/api/letters?role=' + role)));
     roles.forEach((role, i) => { boxes[role] = lists[i]; });
@@ -738,9 +775,9 @@ async function openLetter(letter, role) {
   const marks = readMarks();
   marks[role] = [...new Set([...(marks[role] || []), letter.id])].slice(-300);
   localStorage.setItem('regqa.read', JSON.stringify(marks));
-  const box = $(MAIL[role].detail);
+  const box = $(QC_MAIL.detail);
   box.replaceChildren(el('div', 'empty', 'Открываю письмо…'));
-  if (role === 'quality') $('#qc-detail').replaceChildren();   // под письмом — карточка запроса; прежнюю убираем, пока письмо идёт
+  $('#qc-detail').replaceChildren();   // под письмом — карточка запроса; прежнюю убираем, пока письмо идёт
   paintMail();
   try {
     const full = await api('/api/letter/' + letter.id);
@@ -750,30 +787,28 @@ async function openLetter(letter, role) {
                 el('div', 'letter-meta', 'Кому: ' + who(full.to) + ' · ' + full.to + '   ' + when(full.created)),
                 el('pre', 'letter-text', full.text));
     box.replaceChildren(card);
-    if (role === 'quality' && full.ticket_id) selectTicket(full.ticket_id);   // форма ответа — существующая карточка запроса
+    if (full.ticket_id) selectTicket(full.ticket_id);   // форма ответа — существующая карточка запроса
     box.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   } catch (error) {
     box.replaceChildren(el('div', 'notice', 'Не получилось открыть письмо: ' + error.message));
   }
 }
 
+let standHealth = null;                          // ответ /api/health: адреса, модели, лимит, SMTP
 async function setupMail() {
   try {
-    const health = await api('/api/health');
-    if (health.accounts) accounts = { ...ACCOUNTS, ...health.accounts };
+    standHealth = await api('/api/health');
+    if (standHealth.accounts) accounts = { ...ACCOUNTS, ...standHealth.accounts };
     else mailOff();
   } catch (error) { mailOff(); }
   paintGate();
-  if (!mailOn) return;
-  $('#mail-open').hidden = false;                                       // сервер с почтой: показываем «Почту» сотрудника
-  app.querySelector('.tab[data-tab="mail"]').hidden = false;
+  paintStandFacts();
   paintMail();
   loadMail();
 }
-$('#mail-open').addEventListener('click', () => openPanel('mail'));
-app.querySelectorAll('.tab[data-tab="qc"], .tab[data-tab="mail"]').forEach((node) => node.addEventListener('click', loadMail));
+app.querySelectorAll('.tab[data-tab="qc"]').forEach((node) => node.addEventListener('click', loadMail));
 setupMail();
-setInterval(() => { if (!document.hidden) loadMail(); }, 4000);          // новые письма и счётчики непрочитанных
+setInterval(() => { if (!document.hidden) loadMail(); }, 4000);          // новые письма и счётчик непрочитанных
 
 /* ---- подсказки при наведении: одна всплывашка на все кнопки. Текст — из data-tip, иначе из HINTS,
    иначе из старого title. Запросов к API не делает ---- */
@@ -788,7 +823,6 @@ const HINTS = [
   ['#panel-collapse', 'Свернуть колонну'],
   ['#panel-close', 'Свернуть колонну'],
   ['.tab[data-tab="docs"]', 'Открыть документы'],
-  ['.tab[data-tab="mail"]', 'Почта сотрудника: письма от агента'],
   ['.tab[data-tab="qc"]', 'Тестовый инструмент: ящик службы качества — здесь отвечают сотруднику'],
   ['.letter', 'Открыть письмо'],
   ['.tab[data-tab="stats"]', 'Тестовый инструмент: статистика вопросов'],

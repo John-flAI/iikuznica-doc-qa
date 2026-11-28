@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>ДокИИ</title>
-<link rel="stylesheet" href="/static/style.css?v=20261128g">
+<link rel="stylesheet" href="/static/style.css?v=20261128h">
 <script>
   // страница входа закрывает только чат сотрудника; отдельные экраны /qc и /analytics остаются открытыми, как были.
   // regqa.entered — прежняя отметка входа: кто вошёл до почты, видит стенд сразу (app.js переносит её в regqa.login)
@@ -23,16 +23,10 @@
       </div>
       <div class="toolbar">
         <div class="chat-tabs" id="chat-tabs"></div>
-        <div class="tools">
-          <button class="ghost mail-open" id="mail-open" type="button" hidden data-tip="Почта сотрудника: письма от агента — «передано в службу качества», «ответ на ваш вопрос»">
-            <svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="5.4" width="18" height="13.2" rx="2.4"/><path d="m3.8 7.2 7.3 5.2a1.6 1.6 0 0 0 1.8 0l7.3-5.2"/></svg>
-            Почта<span class="badge" id="mail-badge" hidden></span>
-          </button>
-          <details class="examples-drop" id="examples-drop" hidden>
-            <summary>Тестовые вопросы</summary>
-            <div class="examples" id="examples"></div>
-          </details>
-        </div>
+        <details class="examples-drop" id="examples-drop" hidden>
+          <summary>Тестовые вопросы</summary>
+          <div class="examples" id="examples"></div>
+        </details>
       </div>
     </header>
     <section class="messages" id="messages" aria-live="polite"></section>
@@ -80,7 +74,6 @@
     <button class="panel-collapse" id="panel-collapse" type="button" title="Свернуть колонну">▸</button>
     <nav class="tabs">
       <button class="tab active" type="button" data-tab="docs">Документы</button>
-      <button class="tab" type="button" data-tab="mail" hidden>Почта<span class="badge" id="mail-tab-badge" hidden></span></button>
       <button class="tab" type="button" data-tab="qc" data-demo>Служба качества<span class="badge" id="qc-badge" hidden></span></button>
       <button class="tab" type="button" data-tab="stats" data-demo>Статистика</button>
       <button class="tab" type="button" data-tab="settings" data-demo>Настройки</button>
@@ -103,19 +96,24 @@
       <div class="doc-pick" id="doc-pick"></div>
       <div class="doc" id="doc"><p class="empty">Здесь открывается регламент из ответа агента — с подсветкой нужного места. Нажмите на источник под ответом.</p></div>
     </section>
-    <section class="tab-body" id="tab-mail">
-      <div class="mailbox">
-        <div class="mailbox-head"><b id="mail-name"></b><span class="mailbox-addr" id="mail-addr"></span></div>
-        <div class="mail-list" id="mail-list"></div>
-      </div>
-      <div id="mail-detail"></div>
-    </section>
     <section class="tab-body" id="tab-stats"></section>
     <section class="tab-body" id="tab-settings">
-      <h2 class="settings-title">Модель</h2>
-      <p class="settings-note">Модель, которая отвечает на вопросы. Переключается сразу и запоминается в браузере.</p>
-      <div class="model-tabs" id="model-chips" role="radiogroup" aria-label="Модель, которая отвечает на вопросы"></div>
-      <p class="settings-empty" id="model-empty" hidden>На этом стенде одна модель — выбирать не из чего.</p>
+      <div class="settings-block">
+        <h2 class="settings-title">Модель</h2>
+        <p class="settings-note">Модель, которая отвечает на вопросы. Переключается сразу и запоминается в браузере.</p>
+        <div class="model-tabs" id="model-chips" role="radiogroup" aria-label="Модель, которая отвечает на вопросы"></div>
+        <p class="settings-empty" id="model-empty" hidden>На этом стенде одна модель — выбирать не из чего.</p>
+      </div>
+      <div class="settings-block">
+        <h2 class="settings-title">Стенд и API</h2>
+        <dl class="settings-facts" id="stand-facts"></dl>
+      </div>
+      <div class="settings-block mail-block">
+        <h2 class="settings-title">Почта</h2>
+        <p class="settings-note">Письма агента сотруднику — справочно, для показа.</p>
+        <dl class="settings-facts" id="mail-facts"></dl>
+        <div class="mail-list mail-info" id="mail-list"></div>
+      </div>
     </section>
   </aside>
 </div>
@@ -135,6 +133,6 @@
   </form>
 </section>
 <svg class="flight" id="flight"><path id="flight-path" d=""/><circle class="fly-dot" id="fly-dot" r="5"/></svg>
-<script src="/static/app.js?v=20261128g"></script>
+<script src="/static/app.js?v=20261128h"></script>
 </body>
 </html>

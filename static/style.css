@@ -16,7 +16,7 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 [hidden] { display: none !important; }
 
-.app { display: flex; height: 100vh; }
+.app { display: flex; height: 100vh; overflow: hidden; }   /* без полос прокрутки у документа: въезд колонны (translateX) на полсекунды выходил за край окна, и обе полосы мигали */
 
 /* ---- чат ---- */
 .chat { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: var(--panel); }
@@ -33,11 +33,7 @@ button { cursor: pointer; transition: background-color var(--dur-1) var(--ease),
 .examples-drop summary::after { content: "▾"; font-size: 12px; line-height: 1; }
 .examples-drop[open] summary::after { content: "▴"; }
 .examples-drop summary:hover, .examples-drop[open] summary { border-color: var(--accent); color: var(--accent); }
-/* вторая строка шапки, справа: «Почта» сотрудника и «Тестовые вопросы». Кнопку «Почта» показывает app.js (setupMail),
-   только если на сервере есть почта; счётчик непрочитанных — .badge */
-.tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-.mail-open { display: inline-flex; align-items: center; gap: 7px; }
-.mail-open .i { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+/* счётчик непрочитанных на вкладке «Служба качества» (текст и видимость ставит app.js: setBadge) */
 .badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 7px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; line-height: 1; }
 .ghost { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; color: var(--muted); white-space: nowrap; }
 .ghost:hover { border-color: var(--accent); color: var(--accent); }
@@ -135,9 +131,8 @@ html[data-motion="v-aurora"] .panel.demo-on .tab[data-demo]:focus-visible { outl
   content: "Тестовый инструмент — не часть продукта"; display: block; margin: 0 0 12px;
   font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
 }
-.app:has(.panel:not(.demo-on)) .rail-label { font-size: 0; }   /* в продукте на рельсе — только рабочие вкладки сотрудника; текст разметки не трогаем (якорь исполнителя) */
-.app:has(.panel:not(.demo-on)) .rail-label::after { content: "Документы · Почта"; font-size: 12px; }
-html.no-mail .app:has(.panel:not(.demo-on)) .rail-label::after { content: "Документы"; }
+.app:has(.panel:not(.demo-on)) .rail-label { font-size: 0; }   /* в продукте на рельсе — только рабочая вкладка сотрудника; текст разметки не трогаем (якорь исполнителя) */
+.app:has(.panel:not(.demo-on)) .rail-label::after { content: "Документы"; font-size: 12px; }
 
 /* служба качества */
 .qc-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
@@ -176,6 +171,10 @@ html.no-mail .app:has(.panel:not(.demo-on)) .rail-label::after { content: "До�
 .letter .route { grid-column: 2; grid-row: 2; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .letter:hover, .letter.active { border-color: var(--accent); }
 .letter.active { box-shadow: inset 0 0 0 1px var(--accent); }
+.letter.info { cursor: default; box-shadow: none; }   /* письма сотрудника на «Настройках»: справочная строка, не кнопка */
+.letter.info:hover { border-color: var(--line); }
+.letter.info .snip { grid-column: 2 / 4; grid-row: 3; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-info { max-height: none; margin-top: 10px; }
 .letter-full { margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-1); }
 #tab-qc .letter-full { border-color: var(--qc-line); border-left-color: var(--gold); background: var(--qc-bg); }   /* служба качества — как её ответы в чате: золотая кромка */
 .letter-full h3 { margin: 0 0 6px; font-size: 15px; }
@@ -476,9 +475,6 @@ html[data-motion="v-slack"] .head-note { display: flex; flex-direction: column; 
 html[data-motion="v-slack"] .chat-head h1 { font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
 html[data-motion="v-slack"] .chat-head .limit-note { font-size: 11.5px; line-height: 1.45; color: color-mix(in srgb, var(--warn) 90%, var(--ink)); }
 html[data-motion="v-slack"] .examples-drop { order: -1; width: 100%; }   /* в сайдбаре список вопросов — над списком чатов */
-html[data-motion="v-slack"] .tools { order: -1; flex-direction: column; align-items: stretch; gap: 8px; }   /* «Тестовые вопросы» и «Почта» — строками сайдбара */
-html[data-motion="v-slack"] .mail-open { justify-content: flex-start; padding: 7px 10px; border: 1px dashed var(--line); border-radius: 8px; background: transparent; color: var(--muted); }
-html[data-motion="v-slack"] .mail-open:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); border-color: transparent; color: var(--ink); }
 html[data-motion="v-slack"] .examples-drop summary { width: 100%; justify-content: space-between; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 10px; background: transparent; color: var(--ink); }
 html[data-motion="v-slack"] .examples { left: 0; right: 0; width: auto; max-width: none; }
 html[data-motion="v-slack"] .chat-tabs { flex-direction: column; align-items: stretch; gap: 2px; margin-top: 0; }
@@ -563,6 +559,14 @@ html[data-motion="v-slack"] .msg-copy { right: 8px; }
 .model-chip:hover { border-color: var(--accent); background: var(--hover); }
 .model-chip.active { border-color: var(--accent); color: var(--acc-text, var(--accent)); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent); }
 .settings-empty { color: var(--muted); font-size: 13px; }
+/* «Настройки» — три справочных блока (слово владельца: модели, «айпи», почта): модель выбирается кнопками,
+   «Стенд и API» и «Почта» только показывают то, что прислал сервер (app.js: paintStandFacts, paintMailInfo) */
+.settings-block + .settings-block { margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--line); }
+.settings-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 13px; }
+.settings-facts .fact { display: contents; }   /* пары «имя — значение» ложатся в две колонки сетки, обёртка не участвует */
+.settings-facts dt { color: var(--muted); white-space: nowrap; }
+.settings-facts dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+html.no-mail .mail-block { display: none; }   /* сервер без почты: блока почты нет */
 
 /* переключатель моделей на вкладке «Настройки» (кнопки .model-chip, тело #tab-settings) — здесь они получают
    форму своего оформления; у весов этих правил выше базовых .model-chip, поэтому порядок в файле не важен */
@@ -586,6 +590,17 @@ html[data-motion] .option.picked { background: color-mix(in srgb, var(--ink) 7%,
 .messages::-webkit-scrollbar-thumb:hover, .tab-body::-webkit-scrollbar-thumb:hover, .ticket pre::-webkit-scrollbar-thumb:hover, .mail-list::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
 @media (max-width: 900px) {
-  .panel { position: fixed; right: 0; top: 0; bottom: 0; max-width: 92vw; box-shadow: -8px 0 24px rgba(0,0,0,.12); }
+  .panel { position: fixed; right: 0; top: 0; bottom: 0; z-index: 40; max-width: 92vw; box-shadow: -8px 0 24px rgba(0,0,0,.12); }   /* выше дока: открытая колонна не должна стоять под его кнопками */
   .msg { max-width: 94%; }
+}
+
+/* узкое окно (ноутбук 1366/1280): пять вкладок со счётчиком сжимаются, чтобы остаться в одну строку с кнопкой «▸» */
+@media (max-width: 1400px) {
+  .tab, html[data-motion="v-aurora"] .tab { padding-left: 10px; padding-right: 10px; }
+  html[data-motion="v-aurora"] .tabs { padding-left: 14px; }
+  .panel.demo-on .tab[data-tab="qc"] { margin-left: 10px; }
+}
+@media (max-width: 1300px) {
+  .tab, html[data-motion="v-aurora"] .tab { padding-left: 7px; padding-right: 7px; font-size: 14px; }
+  .tabs { padding-left: 12px; padding-right: 8px; }
 }
