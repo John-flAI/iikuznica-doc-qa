@@ -18,6 +18,8 @@ def client_ip(forwarded_for, peer):
         text = (candidate or '').strip()
         if text.startswith('[') and ']' in text:             # «[2001:db8::1]:443»
             text = text[1:text.index(']')]
+        elif text.count(':') == 1 and text.rsplit(':', 1)[1].isdigit():   # «1.2.3.4:5678» — IPv4 с портом прокси
+            text = text.rsplit(':', 1)[0]
         try:
             address = ipaddress.ip_address(text)
         except ValueError:

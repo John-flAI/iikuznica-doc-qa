@@ -6,6 +6,7 @@
 import hashlib
 import re
 import sys
+import time
 
 from . import config
 from .ingest import CITABLE, load_corpus
@@ -30,7 +31,10 @@ class Engine:
         self.corpus.add(unit)
         self.search.add([unit])
         if self.search.vectors is not None and self.embedder is not None:
-            self.search.vectors.append(unit.uid, self.embedder.embed([unit.search_text])[0])
+            try:
+                self.search.vectors.append(unit.uid, self.embedder.embed([unit.search_text])[0])
+            except (OSError, ValueError, KeyError, IndexError):  # сервер эмбеддингов не ответил: запись ищется словами
+                self.search.vectors_down = time.monotonic() + self.search.retry_after
 
 
 def corpus_digest(corpus):

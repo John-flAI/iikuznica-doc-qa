@@ -155,6 +155,15 @@ class Client(unittest.TestCase):
         self.assertEqual(reply.attempts, 8)
         self.assertEqual(sleep.call_count, 7)              # после последней попытки уже не спим
 
+    def test_a_hanging_server_does_not_hold_the_question_for_half_an_hour(self):
+        """Попытки по 50 секунд: после второй сумма вышла за дедлайн серии — не девять попыток по 180 секунд."""
+        client = self.client([slow_overload(50)] * 9)
+        with mock.patch('app.llm.time.sleep') as sleep:
+            reply = client.chat([])
+        self.assertFalse(reply.ok)
+        self.assertEqual((reply.attempts, sleep.call_count, reply.seconds), (2, 1, 100.0))
+        self.assertEqual(len(client.log), 2)                 # девятая заготовка так и не понадобилась
+
     def test_client_error_is_not_retried(self):
         client = self.client([(Reply(error='HTTP 400'), False)])
         reply = client.chat([])

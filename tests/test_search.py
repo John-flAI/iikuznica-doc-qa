@@ -3,9 +3,11 @@
 import unittest
 import urllib.error
 from pathlib import Path
+from types import SimpleNamespace
 
-from app.engine import load_engine
-from app.ingest import load_corpus
+from app.agent import Agent
+from app.engine import Engine, load_engine
+from app.ingest import SECTION, TEXT, Unit, load_corpus
 from app.search import Search, Tokenizer, load_terms, make_morph
 
 DATA = Path(__file__).resolve().parents[1] / 'data'
@@ -150,6 +152,46 @@ class WordsOnly(unittest.TestCase):
         tokens = self.search.tokenizer.tokens('проджект менеджер')
         self.assertIn('РП', tokens)
         self.assertNotIn('менеджер', tokens)
+
+
+class EmbeddingsOutage(unittest.TestCase):
+    """Сервер эмбеддингов не ответил: стенд работает по словам, а не падает на каждом вопросе."""
+
+    def setUp(self):
+        corpus = load_corpus(DATA)
+        self.search = Search(corpus.units, Tokenizer(make_morph(), load_terms(DATA / 'terms.json')))
+        self.down = False
+        self.search.embedder = SimpleNamespace(embed=self.embed)
+        self.search.vectors = SimpleNamespace(search=lambda vector, k=30: [], append=lambda uid, row: None)
+        self.engine = Engine(corpus, self.search, self.search.embedder)
+        self.agent = Agent(self.engine, None)
+
+    def embed(self, texts):
+        if self.down:
+            raise urllib.error.URLError('сервер эмбеддингов недоступен')
+        return [[1.0, 0.0] for _ in texts]
+
+    def test_question_is_answered_by_words_while_the_server_is_down(self):
+        self.down = True
+        hits = self.search.search('Сколько заявок может быть у одного ПА?', k=5)
+        self.assertTrue(any(h.unit.doc == 'f3' and 'максимум 10 заявок' in h.unit.text for h in hits))
+        self.assertFalse(self.search.semantic)                          # близость — словесным покрытием, пока сервер молчит
+        self.assertEqual(self.agent.relevance(0.99, 0.4), 0.4)
+
+    def test_knowledge_entry_is_added_by_words_when_embeddings_fail(self):
+        self.down = True
+        self.engine.corpus.add_document('kb', 'База знаний: ответы службы качества')
+        self.engine.add(Unit('kb:1', 'kb', '', 'Агентский договор подписывает заместитель директора',
+                             'Ответ службы качества', (('', 'Ответ службы качества', SECTION),), TEXT))
+        self.assertIn('kb:1', self.search.by_uid)                        # запись ищется словами; вектор — после перезапуска
+
+    def test_the_semantic_channel_is_tried_again_after_the_pause(self):
+        self.down = True
+        self.search.search('Сколько заявок может быть у одного ПА?', k=5)
+        self.assertFalse(self.search.semantic)
+        self.down, self.search.vectors_down = False, 0.0                 # сервер ожил, пауза кончилась
+        self.assertTrue(self.search.semantic)
+        self.assertEqual(self.agent.relevance(0.99, 0.4), 0.99)
 
 
 if __name__ == '__main__':

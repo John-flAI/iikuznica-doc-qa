@@ -268,6 +268,14 @@ class KnowledgeUnits(unittest.TestCase):
         self.assertIn(own, [c[0].uid for c in unresolved.cites])
         self.assertNotIn(foreign, [c[0].uid for c in unresolved.cites])
 
+    def test_clarify_without_a_question_keeps_only_own_units(self):
+        """Модель написала «уточнить», но самого вопроса нет: запасной показ — тоже только свои записи."""
+        own, foreign = self.ticket('203.0.113.1', EXPERT), self.ticket('203.0.113.2', EXPERT)
+        unresolved = self.agent(lambda m: ok('{"action": "clarify"}')).ask(QUESTION, kb={own})
+        self.assertEqual(unresolved.route, 'unresolved')
+        self.assertIn(own, [c[0].uid for c in unresolved.cites])
+        self.assertNotIn(foreign, [c[0].uid for c in unresolved.cites])
+
 
 if __name__ == '__main__':
     unittest.main()

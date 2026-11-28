@@ -20,6 +20,7 @@ PAUSES_WITH_FALLBACK = (0.4, 0.8, 1.2, 1.6, 2)
 # Модели с «размышлением» тратят на него весь лимит и не успевают ответить. Выключаем тем
 # переключателем, который понимает сервер: Ollama — reasoning_effort, облако — thinking.
 NO_THINKING = {'reasoning_effort': 'none', 'thinking': {'type': 'disabled'}}
+SERIES_DEADLINE = 90        # секунд на все попытки одной модели: зависший сервер не держит вопрос минутами
 
 
 @dataclass
@@ -124,6 +125,8 @@ class LLMClient:
                     break
                 lost[0] += reply.prompt_tokens      # неудачная попытка тоже стоила токенов
                 lost[1] += reply.completion_tokens
+                if seconds > SERIES_DEADLINE:         # серия длится дольше дедлайна — запасная модель или честный отказ
+                    break
                 if pause is not pauses[-1]:
                     time.sleep(pause)
             if reply.ok:

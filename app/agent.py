@@ -60,15 +60,6 @@ def stem(word):
 ABSTRACT = tuple(sorted({stem(w)[:4] for w in ABSTRACT_WORDS}))
 
 
-def stem(word):
-    """Основа слова: отрезаем одно окончание («заявке», «заявки», «Заявками» → «заявк»)."""
-    word = word.lower().replace('ё', 'е')
-    for tail in ENDINGS:
-        if word.endswith(tail) and len(word) - len(tail) >= 3:
-            return word[:-len(tail)]
-    return word
-
-
 def abstract(root):
     """Слово о сути вопроса, а не о предмете: «приоритет», «критерий», «порядок»."""
     return root.startswith(ABSTRACT)
@@ -204,6 +195,12 @@ class Agent:
             decision.route, decision.cites, decision.error = 'degraded', self.best_of_each(query, scope, kb), reply.error
             return decision
         choice = self.parse(reply.text)
+        if not choice:                      # ответ есть, но решения в нём нет (не JSON, оборван, без действия)
+            choice = self.parse(self.again(question, history, candidates, decision))   # один повтор того же шага
+            if not choice:                  # снова не разобрать — не выдаём это за «в регламентах нет ответа»
+                decision.route, decision.cites = 'degraded', self.best_of_each(query, scope, kb)
+                decision.error = 'модель вернула нечитаемый ответ'
+                return decision
         if choice.get('action') == 'not_found' and self.strongest(candidates) >= GIVE_UP_FLOOR:
             choice = self.parse(self.second_opinion(question, history, candidates, decision))
         elif choice.get('action') == 'clarify' and self.needless(choice, candidates):
@@ -211,7 +208,7 @@ class Agent:
         if choice.get('action') == 'answer':
             self.decide_answer(choice, decision, candidates, scope, question, history)
         elif choice.get('action') == 'clarify':
-            self.decide_clarify(choice, decision, query, scope)
+            self.decide_clarify(choice, decision, query, scope, kb)
         elif choice.get('action') == 'smalltalk':
             self.decide_smalltalk(choice, decision, candidates)
         return decision
@@ -289,16 +286,23 @@ class Agent:
 
     def second_opinion(self, question, history, candidates, decision):
         """Модель сдалась, а фрагменты близки к вопросу: один раз напоминаем про уточнение."""
-        reply = self.llm.chat(self.messages(question, history, candidates)
-                              + [{'role': 'user', 'content': GIVE_UP_CHECK}])
+        return self.again(question, history, candidates, decision, GIVE_UP_CHECK)
+
+    def again(self, question, history, candidates, decision, reminder=''):
+        """Тот же шаг решения ещё раз — с напоминанием (reminder) или без него, если ответ не разобрался."""
+        messages = self.messages(question, history, candidates)
+        if reminder:
+            messages.append({'role': 'user', 'content': reminder})
+        reply = self.llm.chat(messages)
         decision.replies.append(reply)
         decision.usage.add(reply, 'decide-again')
-        return reply.text
+        return reply.text if reply.ok else ''
 
     def needless(self, choice, candidates):
         """Модель переспрашивает «предоставлена ли полная информация», хотя фрагменты близки к вопросу:
         такой вопрос ответ не меняет — один раз просим прямой ответ."""
-        question = str((choice.get('clarify') or {}).get('question') or '')
+        clarify = choice.get('clarify')
+        question = str((clarify.get('question') if isinstance(clarify, dict) else None) or '')
         return bool(NEEDLESS.search(question)) and self.strongest(candidates) >= GIVE_UP_FLOOR
 
     def strongest(self, candidates):
@@ -358,14 +362,16 @@ class Agent:
                 chosen.append(max(children, key=lambda c: self.relevance(c[1], c[2])))
         return chosen
 
-    def decide_clarify(self, choice, decision, query, scope):
-        clarify = choice.get('clarify') or {}
-        if not clarify.get('question'):
-            decision.route, decision.cites = 'unresolved', self.best_of_each(query, scope)
+    def decide_clarify(self, choice, decision, query, scope, kb=None):
+        clarify = choice.get('clarify')
+        clarify = clarify if isinstance(clarify, dict) else {}     # «clarify»: "строка" — уточнения нет
+        if not (isinstance(clarify.get('question'), str) and clarify['question'].strip()):
+            decision.route, decision.cites = 'unresolved', self.best_of_each(query, scope, kb)   # свои записи — только свои
             return
         decision.route = 'clarify'
         decision.question = str(clarify['question']).strip()[:300]
-        options = [str(o).strip() for o in clarify.get('options') or [] if str(o).strip()][:6]
+        shown = clarify.get('options')
+        options = [str(o).strip() for o in (shown if isinstance(shown, list) else []) if str(o).strip()][:6]
         decision.options = [o[:120] for o in options]
         # вариант, называющий регламент, запоминаем: он сузит следующий поиск
         decision.option_docs = {o[:120]: doc for o, doc in zip(options, self.regulation_of(options)) if doc}
@@ -428,7 +434,9 @@ class Agent:
         Словесного покрытия мало: у короткого вопроса остаётся один токен, и он найдётся
         с покрытием 100 %. Поэтому, когда есть эмбеддинги, судим по сходству.
         """
-        return similarity if self.engine.search.vectors is not None else coverage
+        search = self.engine.search
+        by_meaning = getattr(search, 'semantic', search.vectors is not None)   # векторный канал доступен сейчас?
+        return similarity if by_meaning else coverage
 
     def fragments(self, cites, with_ids):
         lines = []

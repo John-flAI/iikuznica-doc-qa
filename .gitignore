@@ -13,3 +13,6 @@ node_modules/
 data/index/
 *.db-shm
 *.db-wal
+
+# результаты прогонов банка и замеров устойчивости — локальные
+bench/out/

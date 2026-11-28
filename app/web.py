@@ -6,8 +6,10 @@
 """
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Path as PathParam
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
@@ -34,6 +36,8 @@ def build(with_vectors=True):
                    catalog=[{k: item[k] for k in ('id', 'label', 'model')} for item in catalog])
 
 
+SID = Annotated[str, PathParam(min_length=1, max_length=128)]     # идентификатор сессии в пути — как выдаёт /api/session
+ROW = Annotated[int, PathParam(ge=1, le=2 ** 31)]                 # номер запроса или письма: без гигантских чисел
 QUESTION_LIMIT = 500        # знаков: слишком длинный вопрос не доходит до модели
 ANSWER_LIMIT = 2000         # знаков в ответе службы качества
 AUTHOR_LIMIT = 100          # знаков в имени автора
@@ -53,19 +57,19 @@ class AskIn(BaseModel):
 
 
 class SessionIn(BaseModel):
-    model: str | None = None      # id модели из списка в /api/health; нет — модель по умолчанию
+    model: str | None = Field(None, max_length=64)      # id модели из списка в /api/health; нет — модель по умолчанию
 
 
 class ModelIn(BaseModel):
-    model: str
+    model: str = Field(max_length=64)
 
 
 class NameIn(BaseModel):
-    name: str = ''                # имя чата на вкладке; пустое — имя по умолчанию
+    name: str = Field('', max_length=1000)              # имя чата на вкладке; пустое — имя по умолчанию (лимит 100 — ниже)
 
 
 class LoginIn(BaseModel):
-    role: str                     # фиксированная роль из /api/health: 'client' или 'quality'
+    role: str = Field(max_length=20)                    # фиксированная роль из /api/health: 'client' или 'quality'
 
 
 def mail_delivered(value):
@@ -127,7 +131,8 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
             app.state.service = build(with_vectors)
         yield
 
-    app = FastAPI(title='Агент ответов по регламентам', lifespan=lifespan, docs_url=None, redoc_url=None)
+    # страница документации API и схема наружу не отдаются: стенд — для сотрудников и жюри
+    app = FastAPI(title='Агент ответов по регламентам', lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     if service is not None:                              # в тестах служба передана — доступна сразу
         app.state.service = service
     app.mount('/static', StaticFiles(directory=STATIC), name='static')
@@ -158,7 +163,8 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
                                  if u.doc == KNOWLEDGE and (visible is None or u.uid in visible)),
                 'model': service.catalog[0]['model'] if service.catalog else config.LLM_MODEL,   # по умолчанию — первая в каталоге
                 'model_served': service.store.served_model(),     # что реально ответило на последний запрос
-                'vectors': service.engine.search.vectors is not None, 'examples': EXAMPLES,
+                'vectors': getattr(service.engine.search, 'semantic', service.engine.search.vectors is not None),
+                'examples': EXAMPLES,
                 'ask_limit': limiter.limit,     # вопросов в час с одного адреса; клиент пишет это на стенде
                 'models': service.models(), 'model_default': service.catalog[0]['id'] if service.catalog else None,
                 'accounts': {role: {'name': name, 'email': email} for role, (name, email) in config.ACCOUNTS.items()},
@@ -173,7 +179,7 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
         return svc(request).store.sessions_of(owner_of(request))
 
     @app.post('/api/session/{session_id}/name')
-    def session_name(session_id: str, body: NameIn, request: Request):
+    def session_name(session_id: SID, body: NameIn, request: Request):
         store = svc(request).store
         if store.session_for(session_id, owner_of(request)) is None:    # чужая, закрытая или нет такой
             raise HTTPException(404, 'нет такой сессии')
@@ -184,13 +190,13 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
         return {'id': session_id, 'name': renamed['name']}
 
     @app.delete('/api/session/{session_id}')
-    def session_close(session_id: str, request: Request):
+    def session_close(session_id: SID, request: Request):
         if svc(request).store.close_session(session_id, owner_of(request)) is None:   # чужая, закрытая или нет такой
             raise HTTPException(404, 'нет такой сессии')
         return {'id': session_id, 'closed': True}
 
     @app.post('/api/session/{session_id}/model')
-    def session_model(session_id: str, body: ModelIn, request: Request):
+    def session_model(session_id: SID, body: ModelIn, request: Request):
         if svc(request).store.session_for(session_id, owner_of(request)) is None:    # чужая сессия — не существует
             raise HTTPException(404, 'нет такой сессии')
         try:
@@ -199,7 +205,8 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
             raise HTTPException(400, str(e))
 
     @app.get('/api/session/{session_id}')
-    def history(session_id: str, request: Request, after: int = 0):
+    def history(session_id: SID, request: Request,
+                after: int = Query(0, ge=0, le=2 ** 31)):          # «после такого сообщения»: без гигантских чисел
         found = svc(request).store.session_for(session_id, owner_of(request))
         if found is None:                     # чужая история для этого владельца не существует — не подсказываем
             raise HTTPException(404, 'нет такой сессии')
@@ -232,7 +239,7 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
         return {'role': body.role, 'name': name, 'email': email}
 
     @app.get('/api/letters')
-    def letters(request: Request, role: str | None = None):
+    def letters(request: Request, role: str | None = Query(None, max_length=20)):
         """Ящик роли: письма владельца адреса, где адрес роли стоит во from, to или cc; новые сверху."""
         account = config.ACCOUNTS.get(role)
         if account is None:
@@ -241,7 +248,7 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
         return [mail_view(row, account[1]) for row in store.letters(owner_of(request), account[1])]
 
     @app.get('/api/letter/{letter_id}')
-    def letter(letter_id: int, request: Request):
+    def letter(letter_id: ROW, request: Request):
         found = svc(request).store.letter(letter_id, owner=owner_of(request))
         if found is None:                     # чужое письмо — как «нет такого», номер не подсказываем
             raise HTTPException(404, 'нет такого письма')
@@ -258,7 +265,7 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
         return result
 
     @app.post('/api/tickets/{ticket_id}/send')
-    def send(ticket_id: int, request: Request):
+    def send(ticket_id: ROW, request: Request):
         service = svc(request)
         ticket = service.store.ticket(ticket_id, owner=owner_of(request))
         if ticket is None:                              # чужой запрос — как «нет такого», номер не подсказываем
@@ -268,7 +275,7 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
         return service.send(ticket_id)
 
     @app.post('/api/tickets/{ticket_id}/answer')
-    def answer(ticket_id: int, body: AnswerIn, request: Request):
+    def answer(ticket_id: ROW, body: AnswerIn, request: Request):
         service = svc(request)
         ticket = service.store.ticket(ticket_id, owner=owner_of(request))
         if ticket is None:
@@ -288,11 +295,11 @@ def create_app(service=None, with_vectors=True, ask_limit=None):
             raise HTTPException(404, 'нет такого регламента')
 
     @app.get('/api/analytics')
-    def analytics(request: Request, days: int | None = None):
+    def analytics(request: Request, days: int | None = Query(None, ge=1, le=3660)):   # период — от дня до десяти лет
         return svc(request).analytics(days, owner=owner_of(request))
 
     @app.get('/api/weekly')
-    def weekly(request: Request, days: int = 7):
+    def weekly(request: Request, days: int = Query(7, ge=1, le=3660)):
         return svc(request).weekly(days, owner=owner_of(request))
 
     for path in PAGES:

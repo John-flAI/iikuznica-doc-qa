@@ -17,6 +17,8 @@ class Address(unittest.TestCase):
         self.assertEqual(client_ip('', '10.0.0.2'), '10.0.0.2')
         self.assertEqual(client_ip(None, None), 'unknown')
         self.assertEqual(client_ip('мусор, [2001:db8::1]:443', '10.0.0.2'), '2001:db8::1')
+        self.assertEqual(client_ip('198.51.100.7:5678', '10.0.0.2'), '198.51.100.7')     # IPv4 с портом прокси — тоже адрес сотрудника
+        self.assertNotEqual(address_key(client_ip('198.51.100.7:5678', '10.0.0.2')), address_key('10.0.0.2'))
 
     def test_ipv6_is_limited_per_network(self):
         self.assertEqual(address_key('2001:db8:1:2:3:4:5:6'), address_key('2001:db8:1:2::7'))

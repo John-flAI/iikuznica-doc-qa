@@ -182,10 +182,33 @@ class AgentLogic(unittest.TestCase):
         self.assertEqual((decision.route, decision.error), ('degraded', 'HTTP 429'))
         self.assertGreaterEqual(len({c[0].doc for c in decision.cites}), 1)
 
-    def test_unparseable_answer_is_not_found(self):
-        for text in ('не могу ответить', '{"action": "answer", "cites": [', '[1, 2, 3]'):
+    def test_unparseable_answer_is_retried_once_and_then_degrades(self):
+        """Ответ без решения (не JSON, оборван, список) — не «в регламентах нет ответа»: один повтор, затем честный запасной показ."""
+        for text in ('не могу ответить', '{"action": "answer", "cites": [', '[1, 2, 3]', '{}'):
             with self.subTest(text=text):
-                self.assertEqual(self.agent(ok(text)).ask(RISKS).route, 'not_found')
+                agent = self.agent(ok(text))
+                decision = agent.ask(RISKS)
+                self.assertEqual((decision.route, decision.error), ('degraded', 'модель вернула нечитаемый ответ'))
+                self.assertGreaterEqual(len({c[0].doc for c in decision.cites}), 1)
+                self.assertEqual(agent.llm.calls, 2)                     # решение + один повтор; письмо в службу качества не готовится
+
+    def test_unparseable_first_answer_is_saved_by_the_second(self):
+        calls = []
+
+        def decide(messages):
+            calls.append(1)
+            return ok('мимо') if len(calls) == 1 else answer(*self.one_per_document(RISKS).values())
+        self.assertEqual(self.flowing(decide).ask(RISKS).route, 'answer')
+        self.assertEqual(len(calls), 2)
+
+    def test_clarify_written_as_plain_string_does_not_crash(self):
+        """Модель написала уточнение строкой, а не объектом: уточнения нет — честное «неоднозначно» с найденными пунктами."""
+        for value in ('В каком вы регламенте?', ['В каком вы регламенте?'], {'options': ['А']}):
+            with self.subTest(value=value):
+                reply = ok(json.dumps({'action': 'clarify', 'clarify': value}, ensure_ascii=False))
+                decision = self.agent(reply).ask(RISKS)
+                self.assertEqual(decision.route, 'unresolved')
+                self.assertTrue(decision.cites)
 
     def test_too_many_clarifications_end_honestly(self):
         reply = ok(json.dumps({'action': 'clarify', 'clarify': {'question': 'Где?', 'options': ['А', 'Б']}}))

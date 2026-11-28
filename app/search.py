@@ -10,6 +10,7 @@
 import json
 import math
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
@@ -121,12 +122,14 @@ class Search:
 
     k1, b = 1.5, 0.75
     pool = 30               # столько лучших атомов отдаёт каждый канал перед слиянием
+    retry_after = 30       # секунд ждём, прежде чем снова звать сервер эмбеддингов после сбоя
 
     def __init__(self, units, tokenizer, vectors=None, embedder=None):
         self.tokenizer = tokenizer
         self.units = [u for u in units if u.kind in CITABLE]
         self.by_uid = {u.uid: u for u in self.units}
         self.vectors, self.embedder = vectors, embedder
+        self.vectors_down = 0.0     # до этого момента (monotonic) векторный канал считается недоступным
         self.tf = [Counter(tokenizer.tokens(u.search_text)) for u in self.units]
         self.dl = [sum(tf.values()) for tf in self.tf]
         self.avgdl = (sum(self.dl) / len(self.dl)) if self.dl else 0.0
@@ -146,6 +149,11 @@ class Search:
             self.df.update(tokens)
         self.n = len(self.units)
         self.avgdl = (sum(self.dl) / self.n) if self.n else 0.0
+
+    @property
+    def semantic(self):
+        """Векторный канал работает: индекс есть и сервер эмбеддингов доступен. Иначе судим по словесному покрытию."""
+        return self.vectors is not None and self.embedder is not None and time.monotonic() >= self.vectors_down
 
     def idf(self, token):
         return math.log(1 + (self.n - self.df[token] + 0.5) / (self.df[token] + 0.5))
@@ -170,8 +178,13 @@ class Search:
         hits = {}
         for rank, hit in enumerate(self.lexical(query, self.pool), 1):
             hits[hit.uid] = Hit(hit.unit, 1 / (60 + rank), hit.coverage)
-        if self.vectors is not None and self.embedder is not None:
-            for rank, (uid, similarity) in enumerate(self.vectors.search(self.embedder.embed([query])[0], self.pool), 1):
+        if self.semantic:
+            try:
+                found = self.vectors.search(self.embedder.embed([query])[0], self.pool)
+            except (OSError, ValueError, KeyError, IndexError):    # сервер эмбеддингов не ответил или ответил не тем
+                self.vectors_down = time.monotonic() + self.retry_after   # полминуты — по словам; стенд отвечает и без векторов
+                return sorted(hits.values(), key=lambda h: -h.score)[:k]
+            for rank, (uid, similarity) in enumerate(found, 1):
                 found = hits.get(uid)
                 weight = 1 / (60 + rank)
                 if found:
