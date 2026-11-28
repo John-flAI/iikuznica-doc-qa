@@ -25,11 +25,11 @@ LLM_MODEL = os.environ.get('LLM_MODEL', 'glm-4.7-flash:latest')
 LLM_API_KEY = os.environ.get('LLM_API_KEY')
 LLM_FALLBACK_MODEL = os.environ.get('LLM_FALLBACK_MODEL')     # запасная, если основная перегружена
 
-# Несколько моделей на выбор — переключатель в шапке чата. Записи через «;»:
+# Несколько моделей на выбор — переключатель на вкладке «Настройки». Записи через «;»:
 #   id|подпись на стенде|адрес сервера|имя модели|имя переменной окружения с ключом.
 # Первая запись — по умолчанию. Запись без ключа в окружении на стенд не попадает.
-MODELS = ('zai-flash|GLM-5.3-Flash · Z.ai|https://api.z.ai/api/coding/paas/v4|GLM-5.3-Flash|LLM_API_KEY;'
-          'comet-qwen|Qwen3.5-122B-A10B · CometAPI|https://api.cometapi.com/v1|qwen3.5-122b-a10b|COMETAPI_KEY;'
+MODELS = ('comet-qwen|Qwen3.5-122B-A10B · CometAPI|https://api.cometapi.com/v1|qwen3.5-122b-a10b|COMETAPI_KEY;'
+          'zai-flash|GLM-5.3-Flash · Z.ai|https://api.z.ai/api/coding/paas/v4|GLM-5.3-Flash|LLM_API_KEY;'
           'comet-oss|gpt-oss-120b · CometAPI|https://api.cometapi.com/v1|gpt-oss-120b|COMETAPI_KEY')
 LLM_MODELS = os.environ.get('LLM_MODELS', MODELS)
 
