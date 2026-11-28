@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>ДокИИ</title>
-<link rel="stylesheet" href="/static/style.css?v=20261128i">
+<link rel="stylesheet" href="/static/style.css?v=20261128j">
 <script>
   // страница входа закрывает только чат сотрудника; отдельные экраны /qc и /analytics остаются открытыми, как были.
   // regqa.entered — прежняя отметка входа: кто вошёл до почты, видит стенд сразу (app.js переносит её в regqa.login)
@@ -47,7 +47,7 @@
           <g class="half" data-half="v-slack"><rect x="3" y="4.8" width="18" height="14.4" rx="2.6"/><path d="M9.8 4.8v14.4"/><path class="fs" d="M5.6 4.8h4.2v14.4H5.6A2.6 2.6 0 0 1 3 16.6V7.4a2.6 2.6 0 0 1 2.6-2.6z"/></g>
         </svg>
       </button>
-      <button class="dock-btn" id="demo-toggle" type="button" role="switch" aria-checked="false" aria-label="Тестовые инструменты: скрыты. Показать" data-tip="Тестовые инструменты: скрыты · нажмите — показать службу качества, статистику и настройки">
+      <button class="dock-btn" id="demo-toggle" type="button" role="switch" aria-checked="false" aria-label="Тестовые инструменты: скрыты. Показать" data-tip="Тестовые инструменты: скрыты · нажмите — показать службу качества, почту клиента, статистику и настройки">
         <svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path class="line" d="M9.3 3h5.4M10.6 3v5.4l-3.66 9.2a1.9 1.9 0 0 0 1.76 2.6h6.6a1.9 1.9 0 0 0 1.76-2.6L13.4 8.4V3"/>
           <path class="liquid" d="M10.41 13.6h3.18l1.28 3.2a1.2 1.2 0 0 1-1.11 1.65h-3.52a1.2 1.2 0 0 1-1.11-1.65z"/>
@@ -75,6 +75,7 @@
     <nav class="tabs">
       <button class="tab active" type="button" data-tab="docs">Документы</button>
       <button class="tab" type="button" data-tab="qc" data-demo>Служба качества<span class="badge" id="qc-badge" hidden></span></button>
+      <button class="tab" type="button" data-tab="mail" data-demo>Почта клиента<span class="badge" id="mail-badge" hidden></span></button>
       <button class="tab" type="button" data-tab="stats" data-demo>Статистика</button>
       <button class="tab" type="button" data-tab="settings" data-demo>Настройки</button>
       <button class="tab close" id="panel-close" type="button" title="Свернуть">▸</button>
@@ -91,6 +92,13 @@
         <button class="ghost" id="weekly" type="button">Отчёт за неделю</button>
         <pre id="weekly-out" hidden></pre>
       </div>
+    </section>
+    <section class="tab-body" id="tab-mail">
+      <div class="mailbox" id="client-mail">
+        <div class="mailbox-head"><b id="client-mail-name"></b><span class="mailbox-addr" id="client-mail-addr"></span></div>
+        <div class="mail-list" id="client-mail-list"></div>
+      </div>
+      <div id="client-letter"></div>
     </section>
     <section class="tab-body active" id="tab-docs">
       <div class="doc-pick" id="doc-pick"></div>
@@ -110,9 +118,8 @@
       </div>
       <div class="settings-block mail-block">
         <h2 class="settings-title">Почта</h2>
-        <p class="settings-note">Письма агента сотруднику — справочно, для показа.</p>
+        <p class="settings-note">Адреса стенда и отправка писем. Сам ящик сотрудника — тестовая вкладка «Почта клиента».</p>
         <dl class="settings-facts" id="mail-facts"></dl>
-        <div class="mail-list mail-info" id="mail-list"></div>
       </div>
     </section>
   </aside>
@@ -133,6 +140,6 @@
   </form>
 </section>
 <svg class="flight" id="flight"><path id="flight-path" d=""/><circle class="fly-dot" id="fly-dot" r="5"/></svg>
-<script src="/static/app.js?v=20261128i"></script>
+<script src="/static/app.js?v=20261128j"></script>
 </body>
 </html>
