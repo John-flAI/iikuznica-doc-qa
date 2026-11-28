@@ -116,7 +116,11 @@ def main():
     _ADDRESS[0] = next_address()
     other = call('/api/session', {})['id']
     again = ask(other, NO_ANSWER)
-    clean = again['route'] == 'not_found' and 'ticket' in again \
+    rounds = 0
+    while again['route'] == 'clarify' and rounds < 3:      # сотрудник стоит на своём: именно агентский
+        again = ask(other, 'Именно агентский договор — не договор с заказчиком и не с субподрядчиком.')
+        rounds += 1
+    clean = again['route'] in ('not_found', 'unresolved') and 'ticket' in again \
         and not any(s['doc'] == 'kb' for s in again.get('sources') or [])
     print('  %s (ожидалось: чужой ответ базы знаний не подмешался — готовится своё письмо)' % ('OK' if clean else 'РАСХОЖДЕНИЕ'))
     if not clean:                                      # диагностика расхождения: что реально вернул агент другому сотруднику
